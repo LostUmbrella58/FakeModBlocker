@@ -15,6 +15,7 @@ A **lightweight**, **fully customizable**, **version-independent** mod detection
 ✅ Works with any server version (1.8–1.21+)  
 ✅ Multi-language (`en`, `cn`, `and your own language`)  
 ✅ Reload support: `/modblocker reload`
+✅Spigot/Paper/Purpur/Folia/PandaSpigot Support
 
 ---
 
