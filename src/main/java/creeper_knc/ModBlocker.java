@@ -1,13 +1,14 @@
 package creeper_knc;
 
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.messaging.PluginMessageListener;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.regex.Matcher;
@@ -28,41 +29,38 @@ public class ModBlocker implements Listener, PluginMessageListener {
         if (player.hasPermission("fakemodblocker.bypass")) return;
 
         if (config.getBoolean("enable")) {
-            checkForMods(player);
+            FakeModBlocker.getInstance().getScheduler().runDelayed(player, 15L, () -> {
+                checkForMods(player);
+            });
         }
     }
 
     private void checkForMods(Player player) {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                boolean flagged = false;
-                List<String> detected = new ArrayList<>();
-                List<String> forbidden = config.getStringList("forbiddenList");
+        boolean flagged = false;
+        List<String> detected = new ArrayList<>();
+        List<String> forbidden = config.getStringList("forbiddenList");
 
-                if (config.getBoolean("logger")) {
-                    String ch = String.join(", ", player.getListeningPluginChannels());
-                    logToConsole(getMessage("log.channel-list")
-                            .replace("%player%", player.getName())
-                            .replace("%channels%", ch));
-                }
+        if (config.getBoolean("logger")) {
+            String ch = String.join(", ", player.getListeningPluginChannels());
+            logToConsole(getMessage("log.channel-list")
+                    .replace("%player%", player.getName())
+                    .replace("%channels%", ch));
+        }
 
-                for (String channel : player.getListeningPluginChannels()) {
-                    for (String keyword : forbidden) {
-                        if (channel.toLowerCase().contains(keyword.toLowerCase())) {
-                            flagged = true;
-                            if (!detected.contains(keyword)) {
-                                detected.add(keyword);
-                            }
-                        }
+        for (String channel : player.getListeningPluginChannels()) {
+            for (String keyword : forbidden) {
+                if (channel.toLowerCase().contains(keyword.toLowerCase())) {
+                    flagged = true;
+                    if (!detected.contains(keyword)) {
+                        detected.add(keyword);
                     }
                 }
-
-                if (flagged && !detected.isEmpty() && !player.hasPermission("fakemodblocker.kickbypass")) {
-                    handleDetectedMods(player, detected);
-                }
             }
-        }.runTaskLater(FakeModBlocker.getInstance(), 15L);
+        }
+
+        if (flagged && !detected.isEmpty() && !player.hasPermission("fakemodblocker.kickbypass")) {
+            handleDetectedMods(player, detected);
+        }
     }
     private void handleDetectedMods(Player player, List<String> mods) {
         logToConsole(getMessage("log.detected-mods")
@@ -88,9 +86,15 @@ public class ModBlocker implements Listener, PluginMessageListener {
             String cmd = config.getString("command", "")
                     .replace("%player%", player.getName())
                     .replace("%kickMessage%", finalMsg);
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
+            FakeModBlocker.getInstance().getScheduler().runGlobal(() -> {
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
+            });
         } else {
-            player.kickPlayer(finalMsg);
+            if (SchedulerAdapter.isFolia()) {
+                player.kick(Component.text(finalMsg));
+            }else {
+                player.kickPlayer(finalMsg);
+            }
         }
     }
 
@@ -127,7 +131,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     @Override
-    public void onPluginMessageReceived(String channel, Player player, byte[] message) {
+    public void onPluginMessageReceived(String channel, @NotNull Player player, byte[] message) {
         String ch = channel.toLowerCase();
         if (!ch.equals(FORGE_CHANNEL.toLowerCase()) && !ch.equals(FORGE_CHANNEL_LEGACY.toLowerCase())) {
             if (ch.equals(FABRIC_CHANNEL.toLowerCase())) {

@@ -14,10 +14,12 @@ public class FakeModBlocker extends JavaPlugin {
     private FileConfiguration messages;
     public static FakeModBlocker getInstance() {return instance;}
     public static boolean hexSupport;
+    private SchedulerAdapter scheduler;
 
     @Override
     public void onEnable() {
         instance = this;
+        scheduler = new SchedulerAdapter(this);
         saveDefaultConfig();
         loadMessages();
         if (!getDataFolder().exists()) {
@@ -67,4 +69,5 @@ public class FakeModBlocker extends JavaPlugin {
     public FileConfiguration getMessages() {
         return messages;
     }
+    public SchedulerAdapter getScheduler() { return scheduler; }
 }
