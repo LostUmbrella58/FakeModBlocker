@@ -48,7 +48,7 @@ This makes it ideal for detecting casual use of mod loaders, but it should **not
 
 ## ❓ FAQ
 
-### Q: Can this detect hacked clients like Sigma, Impact, or Aristois?
+### Q: Can this detect hack clients like LiquidBounce, Vape, and so on?
 **A:** No. Those clients often avoid using detectable plugin message channels. This plugin is best used to detect **mod loaders** like Fabric, Forge, Lunar, etc.
 
 ### Q: Is this an anti-cheat?
