@@ -27,13 +27,9 @@ FakeModBlocker detects **clients or mods that register known plugin message chan
 - `xaeroworldmap` → Xaeroworldmap mod
 - Any custom channel you define
 
-⚠️ **This plugin does NOT detect all mods or cheating tools.**  
-It works only if the client uses plugin channels that can be monitored.
-
 ⚠️ Note:
 > FakeModBlocker does **not** detect all mods or cheating tools. It only works if the client sends identifiable plugin messages.
 
-This makes it ideal for detecting casual use of mod loaders, but it should **not be treated as an anti-cheat/mod solution!**
 ---
 
 ## 📂 Installation
