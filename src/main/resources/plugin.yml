@@ -1,9 +1,9 @@
 name: FakeModBlocker
-version: '1.0'
+version: '1.3'
 main: creeper_knc.FakeModBlocker
 api-version: '1.21'
 prefix: FakeModBlocker
-authors: [ Creeper_可能c (aka Maybe_c) ]
+authors: [ Creeper_可能c (aka Maybe__c) ]
 description: A Simple Mod Blocking Plugin
 softdepend: [PlaceholderAPI, LuckPerms]
 website: https://afdian.com/a/CreeperFamily_ASTW?
@@ -19,6 +19,9 @@ permissions:
     default: op
   fakemodblocker.bypass:
     description: Allows all bypass detection (both notice and kick)
+    default: op
+  fakemodblocker.notify:
+    description: Get new feature notify
     default: op
   fakemodblocker.kickbypass:
     description: Allow players who have this permission won't be kicked, but their channel messages will still be printed in console

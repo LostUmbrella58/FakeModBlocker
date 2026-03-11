@@ -32,3 +32,28 @@ forbiddenList:
   - "flashback"
   - "voxelmap"
   - "replay"
+
+notifyStaff: true
+notificationPermission: fakemodblocker.notify
+
+# Extra optional detections
+# WARNING:
+# This sign translation detection depends on sign editor API availability.
+# On some older server versions/APIs it is NOT available and will be skipped automatically.
+extra-detections:
+  sign-translation:
+    enabled: true
+    mods:
+      Freecam:
+        detect:
+          key: "key.freecam.toggle"
+        punishment:
+          action: "KICK"
+          reason: "&c&lWarning: Please do not use &b&lFreecam &c&lon this server."
+
+      AccurateBlockPlacement:
+        detect:
+          key: "key.category.accurateblockplacement.category"
+        punishment:
+          action: "KICK"
+          reason: "&c&lWarning: Please do not use &b&lAccurateBlockPlacement &c&lon this server."

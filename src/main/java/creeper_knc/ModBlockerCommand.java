@@ -3,24 +3,23 @@ package creeper_knc;
 import org.bukkit.Bukkit;
 import org.bukkit.command.*;
 import org.bukkit.entity.Player;
-
+import org.jetbrains.annotations.NotNull;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import static creeper_knc.FakeModBlocker.hexSupport;
 
 public class ModBlockerCommand implements CommandExecutor, TabCompleter {
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+    public boolean onCommand(CommandSender sender, @NotNull Command command, @NotNull String label, String[] args) {
         if (!sender.hasPermission("fakemodblocker.admin")) {
             sender.sendMessage(colorize(getMsg("command.no-permission")));
             return true;
         }
 
         if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
-            FakeModBlocker.getInstance().reloadConfig();
+            FakeModBlocker.getInstance().reloadAll();
             FakeModBlocker.getInstance().loadMessages();
             sender.sendMessage(colorize(getMsg("command.reload-success")));
             return true;

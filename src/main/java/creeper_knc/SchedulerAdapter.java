@@ -18,7 +18,6 @@ public class SchedulerAdapter {
         if (isFolia()) {
             Bukkit.getRegionScheduler().runDelayed(plugin, player.getLocation(), ignored -> task.run(), delayTicks);
         } else {
-            // 普通 Spigot/Paper
             new BukkitRunnable() {
                 @Override
                 public void run() {

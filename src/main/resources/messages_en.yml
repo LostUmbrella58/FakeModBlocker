@@ -1,4 +1,3 @@
-# Plugin prefix (used in all messages/logs)
 prefix: "&7[&cModBlocker&7] "
 
 log:
@@ -17,8 +16,8 @@ kick:
     tweakeroo: "&cTweakeroo detected! Please disable Tweakeroo to join."
     creativecore: "&cCreativeCore detected, which is often used with other modpacks. Please disable it."
     minimapsync: "&cMinimapSync mod detected! Please disable all mapping utilities."
-    servux: "&cMalilib mod detected! This mod is not permitted on this server."
-    axiom: "&cAxiom (hacked client) detected! This client is not allowed."
+    servux: "&cServux/Malilib related mod detected! This mod is not permitted on this server."
+    axiom: "&cAxiom detected! This client is not allowed."
     freecam: "&cFreecam mod detected! Freecam or spectating mods are prohibited here."
     flashback: "&cFlashback mod detected! Please play without time manipulation mods."
     voxelmap: "&cVoxelMap detected! Mapping mods like VoxelMap are not permitted."
