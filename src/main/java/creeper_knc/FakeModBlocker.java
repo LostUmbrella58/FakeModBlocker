@@ -88,6 +88,7 @@ public class FakeModBlocker extends JavaPlugin {
     public FileConfiguration getMessages() {
         return messages;
     }
+
     public SchedulerAdapter getScheduler() {
         return scheduler;
     }

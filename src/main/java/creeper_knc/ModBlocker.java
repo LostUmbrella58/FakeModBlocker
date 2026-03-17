@@ -3,24 +3,17 @@ package creeper_knc;
 import org.bukkit.BanList;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockState;
-import org.bukkit.block.Sign;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.SignChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 import org.jetbrains.annotations.NotNull;
-
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -32,26 +25,19 @@ public class ModBlocker implements Listener, PluginMessageListener {
     private static final String FORGE_CHANNEL = "fml:hs";
     private static final String FABRIC_CHANNEL = "fabric:registry/sync";
     private static final String FORGE_CHANNEL_LEGACY = "fml:hsl";
-
-    private static final int SIGN_DETECT_PAGE_SIZE = 4;
-    private static final long SIGN_DETECT_OPEN_DELAY_TICKS = 40L;
-    private static final long SIGN_DETECT_SIGN_OPEN_DELAY_TICKS = 7L;
-    private static final long SIGN_DETECT_CLOSE_DELAY_TICKS = 1L;
-    private static final long SIGN_DETECT_NEXT_PAGE_DELAY_TICKS = 10L;
-
     private final FileConfiguration config = FakeModBlocker.getInstance().getConfig();
-
-    private final Set<UUID> signDetectCheckingPlayers = ConcurrentHashMap.newKeySet();
-    private final Map<UUID, Object> originalBlockData = new ConcurrentHashMap<>();
-    private final Map<UUID, Location> signLocations = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer> playerDetectPageIndex = new ConcurrentHashMap<>();
     private final List<DetectionModConfig> signDetectConfigs = new ArrayList<>();
-
     private final boolean signDetectionSupported;
+
+    private Object signDetectionBridge;
 
     public ModBlocker() {
         loadSignDetectionConfigs();
         this.signDetectionSupported = detectSignDetectionSupport();
+
+        if (this.signDetectionSupported) {
+            tryCreateAndRegisterSignBridge();
+        }
 
         if (config.getBoolean("logger")) {
             logToConsole("Sign translation detection support: " + signDetectionSupported);
@@ -61,28 +47,29 @@ public class ModBlocker implements Listener, PluginMessageListener {
     public void reloadModBlockerConfig() {
         loadSignDetectionConfigs();
 
+        if (signDetectionBridge != null) {
+            try {
+                Method reloadMethod = signDetectionBridge.getClass().getMethod("reload");
+                reloadMethod.invoke(signDetectionBridge);
+            } catch (Throwable t) {
+                if (config.getBoolean("logger")) {
+                    logToConsole("Failed to reload sign detection bridge: " + t.getMessage());
+                }
+            }
+        }
+
         if (config.getBoolean("logger")) {
-            logToConsole("Configuration reloaded. Sign translation detection support: " + detectSignDetectionSupport());
+            logToConsole("Configuration reloaded. Sign translation detection support: " + signDetectionSupported);
         }
     }
 
     public void shutdown() {
-        for (UUID uuid : new HashSet<>(signLocations.keySet())) {
-            Location loc = signLocations.get(uuid);
-            if (loc == null) {
-                cleanupPlayerDetectState(uuid);
-                continue;
+        if (signDetectionBridge != null) {
+            try {
+                Method shutdownMethod = signDetectionBridge.getClass().getMethod("shutdown");
+                shutdownMethod.invoke(signDetectionBridge);
+            } catch (Throwable ignored) {
             }
-
-            FakeModBlocker.getInstance().getScheduler().runMain(loc, () -> {
-                try {
-                    Block block = loc.getBlock();
-                    restoreOriginalBlock(uuid, block);
-                } catch (Throwable ignored) {
-                } finally {
-                    cleanupPlayerDetectState(uuid);
-                }
-            });
         }
     }
 
@@ -110,15 +97,19 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 return;
             }
 
-            openSignCheckLater(player);
+            if (signDetectionBridge != null) {
+                try {
+                    Method method = signDetectionBridge.getClass().getMethod("openSignCheckLater", Player.class);
+                    method.invoke(signDetectionBridge, player);
+                } catch (Throwable t) {
+                    if (config.getBoolean("logger")) {
+                        logToConsole("Failed to start sign detection for " + player.getName() + ": " + t.getMessage());
+                    }
+                }
+            }
         }
     }
 
-    /**
-     * =========================
-     * 原有 plugin channel 检测
-     * =========================
-     */
     private void checkForMods(Player player) {
         boolean flagged = false;
         List<String> detected = new ArrayList<>();
@@ -183,230 +174,9 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     /**
-     * =========================
-     * 告示牌翻译键检测（额外可选）
-     * =========================
+     * 这个方法给高版本 bridge 直接调用，别删。
      */
-    private void openSignCheckLater(Player player) {
-        FakeModBlocker.getInstance().getScheduler().runDelayed(player, SIGN_DETECT_OPEN_DELAY_TICKS, () -> {
-            if (!player.isOnline()) {
-                return;
-            }
-            playerDetectPageIndex.put(player.getUniqueId(), 0);
-            openDetectionSign(player);
-        });
-    }
-
-    private void openDetectionSign(Player player) {
-        if (!player.isOnline()) {
-            cleanupPlayerDetectState(player.getUniqueId());
-            return;
-        }
-
-        if (!signDetectionSupported) {
-            cleanupPlayerDetectState(player.getUniqueId());
-            return;
-        }
-
-        if (signDetectConfigs.isEmpty()) {
-            if (config.getBoolean("logger")) {
-                logToConsole("Sign translation detection config is empty. Skip player " + player.getName());
-            }
-            cleanupPlayerDetectState(player.getUniqueId());
-            return;
-        }
-
-        UUID uuid = player.getUniqueId();
-        int page = playerDetectPageIndex.getOrDefault(uuid, 0);
-        int start = page * SIGN_DETECT_PAGE_SIZE;
-
-        if (start >= signDetectConfigs.size()) {
-            if (config.getBoolean("logger")) {
-                logToConsole("Player " + player.getName() + " finished all sign detection pages with no hit.");
-            }
-            cleanupPlayerDetectState(uuid);
-            return;
-        }
-
-        int end = Math.min(start + SIGN_DETECT_PAGE_SIZE, signDetectConfigs.size());
-        Location signLocation = player.getLocation().clone().add(0.0, -5.0, 0.0);
-
-        FakeModBlocker.getInstance().getScheduler().runMain(signLocation, () -> {
-            try {
-                if (!player.isOnline()) {
-                    cleanupPlayerDetectState(uuid);
-                    return;
-                }
-
-                Block block = signLocation.getBlock();
-                originalBlockData.put(uuid, readBlockDataCompat(block));
-                signLocations.put(uuid, signLocation.clone());
-
-                Material signMat = resolveSignMaterial();
-                if (signMat == null) {
-                    if (config.getBoolean("logger")) {
-                        logToConsole("No usable sign material found on current server for player " + player.getName());
-                    }
-                    cleanupPlayerDetectState(uuid);
-                    return;
-                }
-
-                setBlockTypeCompat(block, signMat);
-
-                BlockState state = block.getState();
-                if (!(state instanceof Sign)) {
-                    restoreOriginalBlock(uuid, block);
-                    cleanupPlayerDetectState(uuid);
-                    return;
-                }
-
-                Sign sign = (Sign) state;
-
-                for (int i = 0; i < SIGN_DETECT_PAGE_SIZE; i++) {
-                    int configIndex = start + i;
-                    String text = "";
-
-                    if (configIndex < end) {
-                        DetectionModConfig detectConfig = signDetectConfigs.get(configIndex);
-                        text = "[FSM" + i + "] " + detectConfig.getKey();
-                    }
-
-                    writeSignLineCompat(sign, i, text);
-                }
-
-                updateSignStateCompat(sign);
-
-                FakeModBlocker.getInstance().getScheduler().runDelayed(player, SIGN_DETECT_SIGN_OPEN_DELAY_TICKS, () -> {
-                    try {
-                        if (!player.isOnline()) {
-                            restoreOriginalBlock(uuid, block);
-                            cleanupPlayerDetectState(uuid);
-                            return;
-                        }
-
-                        boolean opened = openSignEditorCompat(player, sign);
-                        if (!opened) {
-                            if (config.getBoolean("logger")) {
-                                logToConsole("Current server cannot open sign editor through public API. Skip sign detection for " + player.getName());
-                            }
-                            restoreOriginalBlock(uuid, block);
-                            cleanupPlayerDetectState(uuid);
-                            return;
-                        }
-
-                        signDetectCheckingPlayers.add(uuid);
-
-                        FakeModBlocker.getInstance().getScheduler().runDelayed(player, SIGN_DETECT_CLOSE_DELAY_TICKS, () -> {
-                            try {
-                                player.closeInventory();
-                            } catch (Throwable ignored) {
-                            }
-                        });
-
-                    } catch (Throwable t) {
-                        restoreOriginalBlock(uuid, block);
-                        cleanupPlayerDetectState(uuid);
-                    }
-                });
-
-            } catch (Throwable t) {
-                cleanupPlayerDetectState(uuid);
-            }
-        });
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onSignChange(SignChangeEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-
-        if (!config.getBoolean("extra-detections.sign-translation.enabled", false)) {
-            return;
-        }
-
-        if (!signDetectionSupported) {
-            return;
-        }
-
-        if (signDetectConfigs.isEmpty()) {
-            restoreOriginalBlock(uuid, event.getBlock());
-            cleanupPlayerDetectState(uuid);
-            return;
-        }
-
-        if (!signDetectCheckingPlayers.remove(uuid)) {
-            return;
-        }
-
-        if (player.hasPermission("fakemodblocker.bypass")) {
-            restoreOriginalBlock(uuid, event.getBlock());
-            cleanupPlayerDetectState(uuid);
-            return;
-        }
-
-        List<String> plainLines = readEventLinesCompat(event);
-
-        if (config.getBoolean("logger")) {
-            logToConsole("Sign returned: " + plainLines);
-        }
-
-        int page = playerDetectPageIndex.getOrDefault(uuid, 0);
-        int start = page * SIGN_DETECT_PAGE_SIZE;
-        int end = Math.min(start + SIGN_DETECT_PAGE_SIZE, signDetectConfigs.size());
-
-        for (int lineIndex = 0; lineIndex < plainLines.size(); lineIndex++) {
-            int configIndex = start + lineIndex;
-            if (configIndex >= end) {
-                continue;
-            }
-
-            DetectionModConfig detectConfig = signDetectConfigs.get(configIndex);
-            String plain = plainLines.get(lineIndex) == null ? "" : plainLines.get(lineIndex).trim();
-            String marker = "[FSM" + lineIndex + "]";
-
-            if (config.getBoolean("logger")) {
-                logToConsole("Sign match -> mod=" + detectConfig.getName()
-                        + ", key=" + detectConfig.getKey()
-                        + ", plainLine=" + plain);
-            }
-
-            if (plain.startsWith(marker) && !plain.contains(detectConfig.getKey())) {
-                if (config.getBoolean("logger")) {
-                    logToConsole("Sign detection hit: " + detectConfig.getName() + " | content=" + plain);
-                }
-                handleSignDetection(player, detectConfig);
-                restoreOriginalBlock(uuid, event.getBlock());
-                cleanupPlayerDetectState(uuid);
-                return;
-            }
-        }
-
-        restoreOriginalBlock(uuid, event.getBlock());
-
-        int nextPage = page + 1;
-        if (nextPage * SIGN_DETECT_PAGE_SIZE < signDetectConfigs.size()) {
-            playerDetectPageIndex.put(uuid, nextPage);
-
-            if (config.getBoolean("logger")) {
-                logToConsole("Page " + (page + 1) + " not matched. Continue page " + (nextPage + 1));
-            }
-
-            FakeModBlocker.getInstance().getScheduler().runDelayed(player, SIGN_DETECT_NEXT_PAGE_DELAY_TICKS, () -> {
-                if (!player.isOnline()) {
-                    cleanupPlayerDetectState(uuid);
-                    return;
-                }
-                openDetectionSign(player);
-            });
-        } else {
-            if (config.getBoolean("logger")) {
-                logToConsole("Sign detection completed with no match.");
-            }
-            cleanupPlayerDetectState(uuid);
-        }
-    }
-
-    private void handleSignDetection(Player player, DetectionModConfig detectConfig) {
+    void handleSignDetection(Player player, DetectionModConfig detectConfig) {
         switch (detectConfig.getAction()) {
             case NOTICE:
                 if (config.getBoolean("logger")) {
@@ -486,199 +256,53 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
 
         try {
-            Class.forName("org.bukkit.block.Sign");
+            Class.forName("io.papermc.paper.event.packet.UncheckedSignChangeEvent");
+            Class.forName("io.papermc.paper.math.Position");
+            Class.forName("org.bukkit.block.sign.Side");
+            Class.forName("org.bukkit.block.data.type.WallSign");
+            Class.forName("net.kyori.adventure.text.Component");
         } catch (Throwable t) {
             return false;
         }
 
         try {
-            Player.class.getMethod("openSign", Sign.class);
-            return true;
-        } catch (Throwable ignored) {
-        }
-
-        try {
+            Class<?> positionClass = Class.forName("io.papermc.paper.math.Position");
             Class<?> sideClass = Class.forName("org.bukkit.block.sign.Side");
-            Player.class.getMethod("openSign", Sign.class, sideClass);
-            return true;
-        } catch (Throwable ignored) {
-        }
-
-        return false;
-    }
-
-    private boolean openSignEditorCompat(Player player, Sign sign) {
-        try {
-            Method method = Player.class.getMethod("openSign", Sign.class);
-            method.invoke(player, sign);
-            return true;
-        } catch (Throwable ignored) {
-        }
-
-        try {
-            Class<?> sideClass = Class.forName("org.bukkit.block.sign.Side");
-            Object front = Enum.valueOf((Class<Enum>) sideClass.asSubclass(Enum.class), "FRONT");
-            Method method = Player.class.getMethod("openSign", Sign.class, sideClass);
-            method.invoke(player, sign, front);
-            return true;
-        } catch (Throwable ignored) {
-        }
-
-        return false;
-    }
-
-    private List<String> readEventLinesCompat(SignChangeEvent event) {
-        List<String> result = new ArrayList<>();
-
-        try {
-            Method linesMethod = event.getClass().getMethod("lines");
-            Object linesObj = linesMethod.invoke(event);
-            if (linesObj instanceof List) {
-                List<?> list = (List<?>) linesObj;
-                for (Object obj : list) {
-                    result.add(componentOrStringToPlain(obj));
-                }
-                return normalizeFourLines(result);
-            }
-        } catch (Throwable ignored) {
-        }
-
-        for (int i = 0; i < 4; i++) {
-            try {
-                String line = event.getLine(i);
-                result.add(line == null ? "" : line);
-            } catch (Throwable t) {
-                result.add("");
-            }
-        }
-
-        return normalizeFourLines(result);
-    }
-
-    private String componentOrStringToPlain(Object obj) {
-        if (obj == null) {
-            return "";
-        }
-
-        if (obj instanceof String) {
-            return (String) obj;
-        }
-
-        try {
-            Class<?> serializerClass = Class.forName("net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer");
-            Method plainText = serializerClass.getMethod("plainText");
-            Object serializer = plainText.invoke(null);
-
-            Method serialize = serializerClass.getMethod("serialize", Class.forName("net.kyori.adventure.text.Component"));
-            Object result = serialize.invoke(serializer, obj);
-            return result == null ? "" : String.valueOf(result);
-        } catch (Throwable ignored) {
-        }
-
-        return String.valueOf(obj);
-    }
-
-    private List<String> normalizeFourLines(List<String> lines) {
-        List<String> out = new ArrayList<>(lines);
-        while (out.size() < 4) {
-            out.add("");
-        }
-        if (out.size() > 4) {
-            return new ArrayList<>(out.subList(0, 4));
-        }
-        return out;
-    }
-
-    private void writeSignLineCompat(Sign sign, int line, String text) {
-        try {
-            sign.setLine(line, text);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void updateSignStateCompat(Sign sign) {
-        try {
-            sign.update(true, false);
-            return;
-        } catch (Throwable ignored) {
-        }
-
-        try {
-            sign.update();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private Object readBlockDataCompat(Block block) {
-        try {
-            Method getBlockData = block.getClass().getMethod("getBlockData");
-            return getBlockData.invoke(block);
-        } catch (Throwable ignored) {
-        }
-        return block.getType();
-    }
-
-    private void restoreOriginalBlock(UUID uuid, Block block) {
-        Object old = originalBlockData.remove(uuid);
-        signLocations.remove(uuid);
-
-        if (old == null) {
-            return;
-        }
-
-        try {
+            Class<?> tileStateClass = Class.forName("org.bukkit.block.TileState");
             Class<?> blockDataClass = Class.forName("org.bukkit.block.data.BlockData");
-            Method setBlockData = block.getClass().getMethod("setBlockData", blockDataClass, boolean.class);
-            setBlockData.invoke(block, old, false);
-            return;
-        } catch (Throwable ignored) {
-        }
+            Class<?> signClass = Class.forName("org.bukkit.block.Sign");
 
+            Player.class.getMethod("openVirtualSign", positionClass, sideClass);
+            Player.class.getMethod("sendBlockUpdate", Location.class, tileStateClass);
+            Player.class.getMethod("sendBlockChange", Location.class, blockDataClass);
+            signClass.getMethod("getSide", sideClass);
+
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void tryCreateAndRegisterSignBridge() {
         try {
-            if (old instanceof Material) {
-                setBlockTypeCompat(block, (Material) old);
+            Class<?> bridgeClass = Class.forName("creeper_knc.VirtualSignDetectionBridge");
+            Constructor<?> constructor = bridgeClass.getConstructor(FakeModBlocker.class, ModBlocker.class);
+            Object bridge = constructor.newInstance(FakeModBlocker.getInstance(), this);
+
+            if (bridge instanceof Listener listener) {
+                Bukkit.getPluginManager().registerEvents(listener, FakeModBlocker.getInstance());
             }
-        } catch (Throwable ignored) {
-        }
-    }
 
-    private void cleanupPlayerDetectState(UUID uuid) {
-        signDetectCheckingPlayers.remove(uuid);
-        playerDetectPageIndex.remove(uuid);
-        originalBlockData.remove(uuid);
-        signLocations.remove(uuid);
-    }
+            this.signDetectionBridge = bridge;
 
-    private Material resolveSignMaterial() {
-        Material mat = Material.matchMaterial("OAK_SIGN");
-        if (mat != null) return mat;
-
-        mat = Material.matchMaterial("SIGN_POST");
-        if (mat != null) return mat;
-
-        mat = Material.matchMaterial("SIGN");
-        if (mat != null) return mat;
-
-        for (Material material : Material.values()) {
-            if (material.name().contains("SIGN")) {
-                return material;
+            if (config.getBoolean("logger")) {
+                logToConsole("Virtual sign detection bridge loaded successfully.");
             }
-        }
-
-        return null;
-    }
-
-    private void setBlockTypeCompat(Block block, Material material) {
-        try {
-            Method setType = block.getClass().getMethod("setType", Material.class, boolean.class);
-            setType.invoke(block, material, false);
-            return;
-        } catch (Throwable ignored) {
-        }
-
-        try {
-            block.setType(material);
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            this.signDetectionBridge = null;
+            if (config.getBoolean("logger")) {
+                logToConsole("Virtual sign detection bridge not available: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            }
         }
     }
 
@@ -734,16 +358,12 @@ public class ModBlocker implements Listener, PluginMessageListener {
             char unit = Character.toLowerCase(duration.charAt(duration.length() - 1));
             long now = System.currentTimeMillis();
 
-            switch (unit) {
-                case 'd':
-                    return new Date(now + amount * 24L * 60L * 60L * 1000L);
-                case 'h':
-                    return new Date(now + amount * 60L * 60L * 1000L);
-                case 'm':
-                    return new Date(now + amount * 60L * 1000L);
-                default:
-                    return null;
-            }
+            return switch (unit) {
+                case 'd' -> new Date(now + amount * 24L * 60L * 60L * 1000L);
+                case 'h' -> new Date(now + amount * 60L * 60L * 1000L);
+                case 'm' -> new Date(now + amount * 60L * 1000L);
+                default -> null;
+            };
         } catch (Exception ignored) {
             return null;
         }
@@ -836,15 +456,15 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
     }
 
-    private void logToConsole(String msg) {
+    void logToConsole(String msg) {
         Bukkit.getConsoleSender().sendMessage(colorize(getMessage("prefix") + msg));
     }
 
-    private String getMessage(String path) {
+    String getMessage(String path) {
         return FakeModBlocker.getInstance().getMessages().getString(path, "");
     }
 
-    private String colorize(String message) {
+    String colorize(String message) {
         if (message == null) return "";
         if (hexSupport) {
             return applyHexColorCodes(message.replace("&", "§"));
