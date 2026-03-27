@@ -73,6 +73,24 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
     }
 
+    public boolean shouldSkipSignDetectionForBedrock(Player player) {
+        if (!config.getBoolean("extra-detections.sign-translation.skip-bedrock-via-floodgate", true)) {
+            return false;
+        }
+        return isFloodgateBedrockPlayer(player);
+    }
+
+    public boolean isFloodgateBedrockPlayer(Player player) {
+        try {
+            Class<?> apiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
+            Object api = apiClass.getMethod("getInstance").invoke(null);
+            Object result = apiClass.getMethod("isFloodgatePlayer", UUID.class).invoke(api, player.getUniqueId());
+            return result instanceof Boolean && (Boolean) result;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -90,6 +108,13 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
 
         if (config.getBoolean("extra-detections.sign-translation.enabled", false)) {
+            if (shouldSkipSignDetectionForBedrock(player)) {
+                if (config.getBoolean("logger")) {
+                    logToConsole("Skipped sign translation detection for Bedrock player via Floodgate: " + player.getName());
+                }
+                return;
+            }
+
             if (!signDetectionSupported) {
                 if (config.getBoolean("logger")) {
                     logToConsole("Sign translation detection is enabled in config, but current server/API does not support it. Skipped for " + player.getName());

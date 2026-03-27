@@ -43,6 +43,7 @@ notificationPermission: fakemodblocker.notify
 extra-detections:
   sign-translation:
     enabled: true
+    skip-bedrock-via-floodgate: true
     mods:
       Freecam:
         detect:

@@ -18,8 +18,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,13 +27,10 @@ public class VirtualSignDetectionBridge implements Listener {
     private static final int PAGE_SIZE = 4;
     private static final long OPEN_DELAY_TICKS = 40L;
     private static final long OPEN_SIGN_DELAY_TICKS = 1L;
-    private static final long CLOSE_DELAY_TICKS = 1L;
     private static final long NEXT_PAGE_DELAY_TICKS = 10L;
-
     private final FakeModBlocker plugin;
     private final ModBlocker parent;
     private final FileConfiguration config;
-
     private final Map<UUID, DetectSession> detectSessions = new ConcurrentHashMap<>();
     private final Map<UUID, Inventory> flashInventories = new ConcurrentHashMap<>();
     private final List<ModBlocker.DetectionModConfig> signDetectConfigs = new ArrayList<>();
@@ -109,19 +104,6 @@ public class VirtualSignDetectionBridge implements Listener {
             restoreClientBlock(player, session.signLocation);
             cleanup(uuid);
         }
-    }
-
-    public void openSignCheckLater(Player player) {
-        plugin.getScheduler().runDelayed(player, OPEN_DELAY_TICKS, () -> {
-            if (!player.isOnline()) {
-                return;
-            }
-            detectSessions.put(
-                    player.getUniqueId(),
-                    new DetectSession(player.getLocation().getBlock().getLocation().add(0.0, -5.0, 0.0), 0)
-            );
-            openDetectionSign(player);
-        });
     }
 
     private void openDetectionSign(Player player) {
@@ -201,15 +183,7 @@ public class VirtualSignDetectionBridge implements Listener {
                                 Position.block(signLocation.getBlockX(), signLocation.getBlockY(), signLocation.getBlockZ()),
                                 Side.BACK
                         );
-
-                        plugin.getScheduler().runDelayed(player, CLOSE_DELAY_TICKS, () -> {
-                            if (player.isOnline()) {
-                                try {
-                                    flashBlankGui(player);
-                                } catch (Throwable ignored) {
-                                }
-                            }
-                        });
+                        player.closeInventory();
                     } catch (Throwable t) {
                         if (config.getBoolean("logger")) {
                             parent.logToConsole("Failed to open virtual sign for " + player.getName() + ": " + t.getMessage());
@@ -328,60 +302,6 @@ public class VirtualSignDetectionBridge implements Listener {
                 parent.logToConsole("Sign detection completed with no match.");
             }
             cleanup(uuid);
-        }
-    }
-
-    private void flashBlankGui(Player player) {
-        if (!player.isOnline()) {
-            return;
-        }
-
-        Inventory inv = Bukkit.createInventory(null, 9, Component.empty());
-        flashInventories.put(player.getUniqueId(), inv);
-        player.openInventory(inv);
-
-        plugin.getScheduler().runDelayed(player, 1L, () -> {
-            if (!player.isOnline()) {
-                flashInventories.remove(player.getUniqueId());
-                return;
-            }
-
-            try {
-                if (player.getOpenInventory() != null && player.getOpenInventory().getTopInventory().equals(inv)) {
-                    player.closeInventory();
-                }
-            } catch (Throwable ignored) {
-            } finally {
-                flashInventories.remove(player.getUniqueId());
-            }
-        });
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onFlashGuiClick(InventoryClickEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) {
-            return;
-        }
-        Inventory inv = flashInventories.get(player.getUniqueId());
-        if (inv == null) {
-            return;
-        }
-        if (event.getView().getTopInventory().equals(inv)) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onFlashGuiDrag(InventoryDragEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) {
-            return;
-        }
-        Inventory inv = flashInventories.get(player.getUniqueId());
-        if (inv == null) {
-            return;
-        }
-        if (event.getView().getTopInventory().equals(inv)) {
-            event.setCancelled(true);
         }
     }
 
