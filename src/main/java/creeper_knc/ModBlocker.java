@@ -3,6 +3,7 @@ package creeper_knc;
 import org.bukkit.BanList;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -10,14 +11,15 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.messaging.PluginMessageListener;
+import org.geysermc.floodgate.api.FloodgateApi;
 import org.jetbrains.annotations.NotNull;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import static creeper_knc.FakeModBlocker.hexSupport;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class ModBlocker implements Listener, PluginMessageListener {
@@ -25,6 +27,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
     private static final String FORGE_CHANNEL = "fml:hs";
     private static final String FABRIC_CHANNEL = "fabric:registry/sync";
     private static final String FORGE_CHANNEL_LEGACY = "fml:hsl";
+
     private final FileConfiguration config = FakeModBlocker.getInstance().getConfig();
     private final List<DetectionModConfig> signDetectConfigs = new ArrayList<>();
     private final boolean signDetectionSupported;
@@ -77,18 +80,55 @@ public class ModBlocker implements Listener, PluginMessageListener {
         if (!config.getBoolean("extra-detections.sign-translation.skip-bedrock-via-floodgate", true)) {
             return false;
         }
-        return isFloodgateBedrockPlayer(player);
+        try {
+            boolean apiResult = FloodgateApi.getInstance().isFloodgatePlayer(player.getUniqueId());
+            if (config.getBoolean("logger")) {
+                logToConsole("Floodgate check for " + player.getName() + ": " + apiResult);
+            }
+            if (apiResult) {
+                return true;
+            }
+        } catch (Throwable t) {
+            if (config.getBoolean("logger")) {
+                logToConsole("Floodgate API error for " + player.getName() + ": " + t.getMessage());
+            }
+        }
+
+        boolean fallback = isLikelyFloodgateBedrock(player);
+        if (config.getBoolean("logger") && fallback) {
+            logToConsole("Floodgate fallback matched for " + player.getName()
+                    + " (API=false, but prefix/UUID indicate Bedrock)");
+        }
+        return fallback;
     }
 
-    public boolean isFloodgateBedrockPlayer(Player player) {
-        try {
-            Class<?> apiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
-            Object api = apiClass.getMethod("getInstance").invoke(null);
-            Object result = apiClass.getMethod("isFloodgatePlayer", UUID.class).invoke(api, player.getUniqueId());
-            return result instanceof Boolean && (Boolean) result;
-        } catch (Throwable ignored) {
-            return false;
+    private boolean isLikelyFloodgateBedrock(Player player) {
+        String prefix = getFloodgatePrefix();
+        if (prefix == null || prefix.isEmpty()) {
+            prefix = ".";
         }
+
+        return player.getName().startsWith(prefix) && isFloodgateStyleUuid(player.getUniqueId());
+    }
+
+    private String getFloodgatePrefix() {
+        org.bukkit.plugin.Plugin floodgate = Bukkit.getPluginManager().getPlugin("Floodgate");
+        if (floodgate == null) {
+            floodgate = Bukkit.getPluginManager().getPlugin("floodgate");
+        }
+        if (!(floodgate instanceof org.bukkit.plugin.java.JavaPlugin javaPlugin)) {
+            return ".";
+        }
+
+        try {
+            return javaPlugin.getConfig().getString("username-prefix", ".");
+        } catch (Throwable ignored) {
+            return ".";
+        }
+    }
+
+    private boolean isFloodgateStyleUuid(UUID uuid) {
+        return uuid != null && uuid.toString().toLowerCase(Locale.ROOT).startsWith("00000000-0000-0000-");
     }
 
     @EventHandler
@@ -180,7 +220,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 msg = "&c[ModBlocker] Kick reason not defined.";
             }
 
-            message.append(colorize(msg.replace("%player%", player.getName()))).append("\n");
+            message.append(msg.replace("%player%", player.getName())).append("\n");
         }
 
         String finalMsg = message.toString().trim();
@@ -188,7 +228,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
         if (config.getBoolean("useCustomKickCommand")) {
             String cmd = config.getString("command", "")
                     .replace("%player%", player.getName())
-                    .replace("%kickMessage%", finalMsg);
+                    .replace("%kickMessage%", MessageBridge.toLegacySection(finalMsg));
 
             FakeModBlocker.getInstance().getScheduler().runGlobal(() ->
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
@@ -198,9 +238,6 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
     }
 
-    /**
-     * 这个方法给高版本 bridge 直接调用，别删。
-     */
     void handleSignDetection(Player player, DetectionModConfig detectConfig) {
         switch (detectConfig.getAction()) {
             case NOTICE:
@@ -211,9 +248,9 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 break;
 
             case KICK:
-                String kickReason = colorize(detectConfig.getReason() != null
+                String kickReason = detectConfig.getReason() != null
                         ? detectConfig.getReason()
-                        : "&cDetected forbidden mod: " + detectConfig.getName());
+                        : "&cDetected forbidden mod: " + detectConfig.getName();
 
                 if (config.getBoolean("logger")) {
                     logToConsole("Sign detection found " + player.getName() + " using " + detectConfig.getName() + ", kicking player.");
@@ -224,7 +261,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 if (config.getBoolean("useCustomKickCommand")) {
                     String cmd = config.getString("command", "")
                             .replace("%player%", player.getName())
-                            .replace("%kickMessage%", kickReason);
+                            .replace("%kickMessage%", MessageBridge.toLegacySection(kickReason));
 
                     FakeModBlocker.getInstance().getScheduler().runGlobal(() ->
                             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
@@ -235,9 +272,9 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 break;
 
             case BAN:
-                String banReason = colorize(detectConfig.getReason() != null
+                String banReason = detectConfig.getReason() != null
                         ? detectConfig.getReason()
-                        : "&cDetected forbidden mod: " + detectConfig.getName());
+                        : "&cDetected forbidden mod: " + detectConfig.getName();
 
                 Date expires = parseDuration(detectConfig.getDuration());
 
@@ -265,12 +302,12 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
 
         String permission = config.getString("notificationPermission", "fakemodblocker.notify");
-        String prefix = colorize(getMessage("prefix"));
-        String msg = prefix + colorize(message);
+        String prefix = getMessage("prefix");
+        String msg = prefix + message;
 
         for (Player online : Bukkit.getOnlinePlayers()) {
             if (online.hasPermission(permission)) {
-                online.sendMessage(msg);
+                MessageBridge.send(online, msg);
             }
         }
     }
@@ -332,13 +369,12 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     private void kickPlayerCompat(Player player, String reason) {
-        try {
-            player.kickPlayer(reason);
-        } catch (Throwable ignored) {
-        }
+        MessageBridge.kick(player, reason);
     }
 
     private void banPlayerCompat(Player player, String reason, Date expires) {
+        String legacyReason = MessageBridge.toLegacySection(reason);
+
         try {
             Class<?> banListTypeClass = Class.forName("io.papermc.paper.ban.BanListType");
             Object profileType = Enum.valueOf((Class<Enum>) banListTypeClass.asSubclass(Enum.class), "PROFILE");
@@ -351,7 +387,9 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
             Method addBan = null;
             for (Method method : banList.getClass().getMethods()) {
-                if (!method.getName().equals("addBan")) continue;
+                if (!method.getName().equals("addBan")) {
+                    continue;
+                }
                 Class<?>[] params = method.getParameterTypes();
                 if (params.length == 4) {
                     addBan = method;
@@ -360,7 +398,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
             }
 
             if (addBan != null) {
-                addBan.invoke(banList, profile, reason, expires, "FakeModBlocker-SIGN");
+                addBan.invoke(banList, profile, legacyReason, expires, "FakeModBlocker-SIGN");
                 return;
             }
         } catch (Throwable ignored) {
@@ -368,7 +406,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
         try {
             Bukkit.getBanList(BanList.Type.NAME)
-                    .addBan(player.getName(), reason, expires, "FakeModBlocker-SIGN");
+                    .addBan(player.getName(), legacyReason, expires, "FakeModBlocker-SIGN");
         } catch (Throwable ignored) {
         }
     }
@@ -482,37 +520,13 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     void logToConsole(String msg) {
-        Bukkit.getConsoleSender().sendMessage(colorize(getMessage("prefix") + msg));
+        String finalMessage = getMessage("prefix") + msg;
+        CommandSender console = Bukkit.getConsoleSender();
+        MessageBridge.send(console, finalMessage);
     }
 
     String getMessage(String path) {
         return FakeModBlocker.getInstance().getMessages().getString(path, "");
-    }
-
-    String colorize(String message) {
-        if (message == null) return "";
-        if (hexSupport) {
-            return applyHexColorCodes(message.replace("&", "§"));
-        }
-        return message.replace("&", "§");
-    }
-
-    private String applyHexColorCodes(String msg) {
-        Pattern pattern = Pattern.compile("&#([a-fA-F0-9]{6})");
-        Matcher matcher = pattern.matcher(msg);
-        StringBuilder buffer = new StringBuilder();
-
-        while (matcher.find()) {
-            String hex = matcher.group(1);
-            StringBuilder replacement = new StringBuilder("§x");
-            for (char c : hex.toCharArray()) {
-                replacement.append("§").append(c);
-            }
-            matcher.appendReplacement(buffer, replacement.toString());
-        }
-
-        matcher.appendTail(buffer);
-        return buffer.toString();
     }
 
     public enum DetectionAction {

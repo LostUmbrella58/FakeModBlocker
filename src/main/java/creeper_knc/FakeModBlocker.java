@@ -3,7 +3,6 @@ package creeper_knc;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
-
 import java.io.File;
 import java.util.Objects;
 
@@ -11,7 +10,6 @@ public class FakeModBlocker extends JavaPlugin {
 
     private static FakeModBlocker instance;
     private FileConfiguration messages;
-    public static boolean hexSupport;
     private SchedulerAdapter scheduler;
     private ModBlocker modBlocker;
 
@@ -24,17 +22,22 @@ public class FakeModBlocker extends JavaPlugin {
         instance = this;
         scheduler = new SchedulerAdapter(this);
 
-        saveDefaultConfig();
-        loadMessages();
+        MessageBridge.init();
 
         if (!getDataFolder().exists()) {
             getDataFolder().mkdirs();
         }
 
+        saveDefaultConfig();
+        loadMessages();
+
         modBlocker = new ModBlocker();
 
-        Objects.requireNonNull(getCommand("modblocker")).setExecutor(new ModBlockerCommand());
-        Objects.requireNonNull(getCommand("modblocker")).setTabCompleter(new ModBlockerCommand());
+        ModBlockerCommand command = new ModBlockerCommand();
+        Objects.requireNonNull(getCommand("modblocker"), "Command 'modblocker' not defined in plugin.yml")
+                .setExecutor(command);
+        Objects.requireNonNull(getCommand("modblocker"), "Command 'modblocker' not defined in plugin.yml")
+                .setTabCompleter(command);
 
         getServer().getPluginManager().registerEvents(modBlocker, this);
 

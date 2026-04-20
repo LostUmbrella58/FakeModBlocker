@@ -106,6 +106,27 @@ public class VirtualSignDetectionBridge implements Listener {
         }
     }
 
+    public void openSignCheckLater(Player player) {
+        plugin.getScheduler().runDelayed(player, OPEN_DELAY_TICKS, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+
+            if (parent.shouldSkipSignDetectionForBedrock(player)) {
+                if (config.getBoolean("logger")) {
+                    parent.logToConsole("Skipped delayed virtual sign detection for Bedrock player via Floodgate: " + player.getName());
+                }
+                return;
+            }
+
+            detectSessions.put(
+                    player.getUniqueId(),
+                    new DetectSession(player.getLocation().getBlock().getLocation().add(0.0, -5.0, 0.0), 0)
+            );
+            openDetectionSign(player);
+        });
+    }
+
     private void openDetectionSign(Player player) {
         UUID uuid = player.getUniqueId();
         DetectSession session = detectSessions.get(uuid);
@@ -127,7 +148,11 @@ public class VirtualSignDetectionBridge implements Listener {
             return;
         }
 
+        session.openToken++;
+        final int token = session.openToken;
+        session.waitingResponse = true;
         int end = Math.min(start + PAGE_SIZE, signDetectConfigs.size());
+
         Location signLocation = session.signLocation;
 
         if (config.getBoolean("logger")) {
@@ -184,6 +209,44 @@ public class VirtualSignDetectionBridge implements Listener {
                                 Side.BACK
                         );
                         player.closeInventory();
+
+                        plugin.getScheduler().runDelayed(player, 15L, () -> {
+                            DetectSession latest = detectSessions.get(uuid);
+                            if (latest == null || !player.isOnline()) {
+                                return;
+                            }
+
+                            if (latest.openToken != token || !latest.waitingResponse) {
+                                return;
+                            }
+
+                            latest.waitingResponse = false;
+
+                            if (config.getBoolean("logger")) {
+                                parent.logToConsole("Sign detection timeout fallback for " + player.getName()
+                                        + " page " + (latest.page + 1));
+                            }
+
+                            restoreClientBlock(player, latest.signLocation);
+
+                            int nextPage = latest.page + 1;
+                            if (nextPage * PAGE_SIZE < signDetectConfigs.size()) {
+                                latest.page = nextPage;
+                                plugin.getScheduler().runDelayed(player, NEXT_PAGE_DELAY_TICKS, () -> {
+                                    if (!player.isOnline()) {
+                                        cleanup(uuid);
+                                        return;
+                                    }
+                                    openDetectionSign(player);
+                                });
+                            } else {
+                                if (config.getBoolean("logger")) {
+                                    parent.logToConsole("Sign detection completed with no match (timeout fallback).");
+                                }
+                                cleanup(uuid);
+                            }
+                        });
+
                     } catch (Throwable t) {
                         if (config.getBoolean("logger")) {
                             parent.logToConsole("Failed to open virtual sign for " + player.getName() + ": " + t.getMessage());
@@ -220,6 +283,11 @@ public class VirtualSignDetectionBridge implements Listener {
                 || event.getEditedBlockPosition().blockZ() != session.signLocation.getBlockZ()) {
             return;
         }
+
+        if (!session.waitingResponse) {
+            return;
+        }
+        session.waitingResponse = false;
 
         event.setCancelled(true);
 
@@ -320,10 +388,14 @@ public class VirtualSignDetectionBridge implements Listener {
     private static final class DetectSession {
         private final Location signLocation;
         private int page;
+        private int openToken;
+        private boolean waitingResponse;
 
         private DetectSession(Location signLocation, int page) {
             this.signLocation = signLocation;
             this.page = page;
+            this.openToken = 0;
+            this.waitingResponse = false;
         }
     }
 }
