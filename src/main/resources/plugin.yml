@@ -1,5 +1,5 @@
 name: FakeModBlocker
-version: '1.6.1'
+version: '1.6.2'
 main: creeper_knc.FakeModBlocker
 api-version: '1.21'
 prefix: FakeModBlocker
