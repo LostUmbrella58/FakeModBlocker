@@ -1,11 +1,11 @@
 name: FakeModBlocker
-version: '1.6'
+version: '1.6.1'
 main: creeper_knc.FakeModBlocker
 api-version: '1.21'
 prefix: FakeModBlocker
 authors: [ Creeper_可能c (aka Maybe__c) ]
 description: A Simple Mod Blocking Plugin
-softdepend: [PlaceholderAPI, LuckPerms, floodgate]
+softdepend: [PlaceholderAPI, LuckPerms, floodgate, packetevents]
 website: https://afdian.com/a/CreeperFamily_ASTW?
 folia-supported: true
 commands:

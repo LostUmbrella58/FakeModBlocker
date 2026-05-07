@@ -26,7 +26,10 @@ forbiddenList:
   - "tweakeroo"
   - "creativecore"
   - "minimapsync"
-  - "servux"
+  # Use specific Servux sub-channels so that "servux:litematics" (Litematica) is not caught.
+  # Tweakeroo registers "servux:tweaks", MiniHUD/Structures registers "servux:structures".
+  - "servux:tweaks"
+  - "servux:structures"
   - "axiom"
   - "freecam"
   - "flashback"
@@ -41,6 +44,12 @@ notificationPermission: fakemodblocker.notify
 # This sign translation detection depends on sign editor API availability.
 # On some older server versions/APIs it is NOT available and will be skipped automatically.
 extra-detections:
+  # Optional: use PacketEvents (https://www.spigotmc.org/resources/packetevents-api.80279/)
+  # to intercept plugin-channel registration packets directly. This catches forbidden
+  # channels earlier (no PlayerJoinEvent + 15 tick delay) and is more reliable when mods
+  # register channels late in the session. Only takes effect if PacketEvents is installed.
+  packet-events:
+    enabled: true
   sign-translation:
     enabled: true
     skip-bedrock-via-floodgate: true

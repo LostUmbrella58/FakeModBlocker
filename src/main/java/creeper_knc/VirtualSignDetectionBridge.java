@@ -30,7 +30,7 @@ public class VirtualSignDetectionBridge implements Listener {
     private static final long NEXT_PAGE_DELAY_TICKS = 10L;
     private final FakeModBlocker plugin;
     private final ModBlocker parent;
-    private final FileConfiguration config;
+    private FileConfiguration config;
     private final Map<UUID, DetectSession> detectSessions = new ConcurrentHashMap<>();
     private final Map<UUID, Inventory> flashInventories = new ConcurrentHashMap<>();
     private final List<ModBlocker.DetectionModConfig> signDetectConfigs = new ArrayList<>();
@@ -43,6 +43,7 @@ public class VirtualSignDetectionBridge implements Listener {
     }
 
     public void reload() {
+        this.config = plugin.getConfig();
         signDetectConfigs.clear();
 
         ConfigurationSection root = config.getConfigurationSection("extra-detections.sign-translation.mods");

@@ -29,6 +29,7 @@ public class FakeModBlocker extends JavaPlugin {
         }
 
         saveDefaultConfig();
+        getConfig().setDefaults(new YamlConfiguration());
         loadMessages();
 
         modBlocker = new ModBlocker();
@@ -57,6 +58,7 @@ public class FakeModBlocker extends JavaPlugin {
 
     public void reloadAll() {
         reloadConfig();
+        getConfig().setDefaults(new YamlConfiguration());
         loadMessages();
         if (modBlocker != null) {
             modBlocker.reloadModBlockerConfig();
@@ -94,5 +96,9 @@ public class FakeModBlocker extends JavaPlugin {
 
     public SchedulerAdapter getScheduler() {
         return scheduler;
+    }
+
+    public ModBlocker getModBlocker() {
+        return modBlocker;
     }
 }

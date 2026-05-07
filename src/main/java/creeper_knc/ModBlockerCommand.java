@@ -55,6 +55,13 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
             } else {
                 MessageBridge.send(sender, getMsg("command.check-matched") + " " + String.join(", ", matched));
             }
+
+            ModBlocker modBlocker = FakeModBlocker.getInstance().getModBlocker();
+            if (modBlocker != null && modBlocker.triggerSignDetection(target)) {
+                MessageBridge.send(sender, getMsg("command.sign-check-triggered").replace("%player%", target.getName()));
+            } else {
+                MessageBridge.send(sender, getMsg("command.sign-check-skipped").replace("%player%", target.getName()));
+            }
             return true;
         }
 

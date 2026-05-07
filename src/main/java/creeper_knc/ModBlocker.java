@@ -10,6 +10,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.jetbrains.annotations.NotNull;
@@ -19,7 +20,9 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class ModBlocker implements Listener, PluginMessageListener {
@@ -28,11 +31,13 @@ public class ModBlocker implements Listener, PluginMessageListener {
     private static final String FABRIC_CHANNEL = "fabric:registry/sync";
     private static final String FORGE_CHANNEL_LEGACY = "fml:hsl";
 
-    private final FileConfiguration config = FakeModBlocker.getInstance().getConfig();
+    private FileConfiguration config = FakeModBlocker.getInstance().getConfig();
     private final List<DetectionModConfig> signDetectConfigs = new ArrayList<>();
     private final boolean signDetectionSupported;
+    private final Set<UUID> handledChannelKick = ConcurrentHashMap.newKeySet();
 
     private Object signDetectionBridge;
+    private Object packetEventsBridge;
 
     public ModBlocker() {
         loadSignDetectionConfigs();
@@ -42,12 +47,22 @@ public class ModBlocker implements Listener, PluginMessageListener {
             tryCreateAndRegisterSignBridge();
         }
 
+        if (config.getBoolean("extra-detections.packet-events.enabled", true)) {
+            if (detectPacketEventsSupport()) {
+                tryCreateAndRegisterPacketEventsBridge();
+            } else if (config.getBoolean("logger")) {
+                logToConsole("PacketEvents not detected. Packet-level channel detection disabled.");
+            }
+        }
+
         if (config.getBoolean("logger")) {
             logToConsole("Sign translation detection support: " + signDetectionSupported);
+            logToConsole("Packet-level channel detection support: " + (packetEventsBridge != null));
         }
     }
 
     public void reloadModBlockerConfig() {
+        this.config = FakeModBlocker.getInstance().getConfig();
         loadSignDetectionConfigs();
 
         if (signDetectionBridge != null) {
@@ -74,6 +89,14 @@ public class ModBlocker implements Listener, PluginMessageListener {
             } catch (Throwable ignored) {
             }
         }
+        if (packetEventsBridge != null) {
+            try {
+                Method shutdownMethod = packetEventsBridge.getClass().getMethod("shutdown");
+                shutdownMethod.invoke(packetEventsBridge);
+            } catch (Throwable ignored) {
+            }
+        }
+        handledChannelKick.clear();
     }
 
     public boolean shouldSkipSignDetectionForBedrock(Player player) {
@@ -147,31 +170,41 @@ public class ModBlocker implements Listener, PluginMessageListener {
             });
         }
 
-        if (config.getBoolean("extra-detections.sign-translation.enabled", false)) {
-            if (shouldSkipSignDetectionForBedrock(player)) {
-                if (config.getBoolean("logger")) {
-                    logToConsole("Skipped sign translation detection for Bedrock player via Floodgate: " + player.getName());
-                }
-                return;
-            }
+        triggerSignDetection(player);
+    }
 
-            if (!signDetectionSupported) {
-                if (config.getBoolean("logger")) {
-                    logToConsole("Sign translation detection is enabled in config, but current server/API does not support it. Skipped for " + player.getName());
-                }
-                return;
-            }
+    public boolean triggerSignDetection(Player player) {
+        if (!config.getBoolean("extra-detections.sign-translation.enabled", false)) {
+            return false;
+        }
 
-            if (signDetectionBridge != null) {
-                try {
-                    Method method = signDetectionBridge.getClass().getMethod("openSignCheckLater", Player.class);
-                    method.invoke(signDetectionBridge, player);
-                } catch (Throwable t) {
-                    if (config.getBoolean("logger")) {
-                        logToConsole("Failed to start sign detection for " + player.getName() + ": " + t.getMessage());
-                    }
-                }
+        if (shouldSkipSignDetectionForBedrock(player)) {
+            if (config.getBoolean("logger")) {
+                logToConsole("Skipped sign translation detection for Bedrock player via Floodgate: " + player.getName());
             }
+            return false;
+        }
+
+        if (!signDetectionSupported) {
+            if (config.getBoolean("logger")) {
+                logToConsole("Sign translation detection is enabled in config, but current server/API does not support it. Skipped for " + player.getName());
+            }
+            return false;
+        }
+
+        if (signDetectionBridge == null) {
+            return false;
+        }
+
+        try {
+            Method method = signDetectionBridge.getClass().getMethod("openSignCheckLater", Player.class);
+            method.invoke(signDetectionBridge, player);
+            return true;
+        } catch (Throwable t) {
+            if (config.getBoolean("logger")) {
+                logToConsole("Failed to start sign detection for " + player.getName() + ": " + t.getMessage());
+            }
+            return false;
         }
     }
 
@@ -204,6 +237,10 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     private void handleDetectedMods(Player player, List<String> mods) {
+        if (!handledChannelKick.add(player.getUniqueId())) {
+            return;
+        }
+
         logToConsole(getMessage("log.detected-mods")
                 .replace("%player%", player.getName())
                 .replace("%mods%", String.join(", ", mods)));
@@ -342,6 +379,91 @@ public class ModBlocker implements Listener, PluginMessageListener {
             return true;
         } catch (Throwable ignored) {
             return false;
+        }
+    }
+
+    private boolean detectPacketEventsSupport() {
+        try {
+            Class.forName("com.github.retrooper.packetevents.PacketEvents");
+            Class.forName("com.github.retrooper.packetevents.protocol.packettype.PacketType");
+            Class.forName("com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPluginMessage");
+            return Bukkit.getPluginManager().getPlugin("packetevents") != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void tryCreateAndRegisterPacketEventsBridge() {
+        try {
+            Class<?> bridgeClass = Class.forName("creeper_knc.PacketEventsBridge");
+            Constructor<?> constructor = bridgeClass.getConstructor(FakeModBlocker.class, ModBlocker.class);
+            Object bridge = constructor.newInstance(FakeModBlocker.getInstance(), this);
+
+            Method initMethod = bridgeClass.getMethod("init");
+            initMethod.invoke(bridge);
+
+            this.packetEventsBridge = bridge;
+
+            if (config.getBoolean("logger")) {
+                logToConsole("PacketEvents bridge loaded successfully.");
+            }
+        } catch (Throwable t) {
+            this.packetEventsBridge = null;
+            if (config.getBoolean("logger")) {
+                logToConsole("PacketEvents bridge not available: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            }
+        }
+    }
+
+    public void handlePacketChannel(Player player, String channel) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        if (!config.getBoolean("enable")) {
+            return;
+        }
+        if (player.hasPermission("fakemodblocker.bypass")) {
+            return;
+        }
+
+        String lower = channel.toLowerCase(Locale.ROOT);
+        List<String> forbidden = config.getStringList("forbiddenList");
+        List<String> matched = new ArrayList<>();
+
+        for (String keyword : forbidden) {
+            if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
+                if (!matched.contains(keyword)) {
+                    matched.add(keyword);
+                }
+            }
+        }
+
+        if (matched.isEmpty()) {
+            return;
+        }
+
+        if (config.getBoolean("logger")) {
+            logToConsole("Packet-level detection on " + player.getName()
+                    + ": channel=" + channel + ", matched=" + matched);
+        }
+
+        if (player.hasPermission("fakemodblocker.kickbypass")) {
+            return;
+        }
+
+        handleDetectedMods(player, matched);
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        handledChannelKick.remove(uuid);
+        if (packetEventsBridge != null) {
+            try {
+                Method m = packetEventsBridge.getClass().getMethod("onPlayerQuit", UUID.class);
+                m.invoke(packetEventsBridge, uuid);
+            } catch (Throwable ignored) {
+            }
         }
     }
 

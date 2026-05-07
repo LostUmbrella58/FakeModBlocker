@@ -6,7 +6,7 @@
 
     <groupId>maybe_c</groupId>
     <artifactId>fakemodblocker</artifactId>
-    <version>1.6</version>
+    <version>1.6.1</version>
     <packaging>jar</packaging>
 
     <name>fakemodblocker</name>
@@ -67,6 +67,10 @@
             <id>opencollab-snapshot</id>
             <url>https://repo.opencollab.dev/main/</url>
         </repository>
+        <repository>
+            <id>codemc-releases</id>
+            <url>https://repo.codemc.io/repository/maven-releases/</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -86,6 +90,12 @@
             <groupId>org.geysermc.floodgate</groupId>
             <artifactId>api</artifactId>
             <version>2.2.4-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.retrooper</groupId>
+            <artifactId>packetevents-spigot</artifactId>
+            <version>2.7.0</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
