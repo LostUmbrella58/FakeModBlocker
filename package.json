@@ -1,0 +1,24 @@
+{
+  "name": "fakemodblocker",
+  "version": "1.7.0",
+  "private": true,
+  "description": "Docs site for FakeModBlocker — lightweight Minecraft mod detection plugin",
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LostUmbrella58/FakeModBlocker.git"
+  },
+  "homepage": "https://lostumbrella58.github.io/FakeModBlocker/",
+  "bugs": {
+    "url": "https://github.com/LostUmbrella58/FakeModBlocker/issues"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}
