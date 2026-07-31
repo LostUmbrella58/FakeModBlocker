@@ -8,10 +8,21 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 public class SchedulerAdapter {
 
+    private static final boolean REGIONIZED = detectRegionized();
+
     private final Plugin plugin;
 
     public SchedulerAdapter(Plugin plugin) {
         this.plugin = plugin;
+    }
+
+    private static boolean detectRegionized() {
+        try {
+            Class.forName("io.papermc.paper.threadedregions.TickRegionScheduler");
+            return true;
+        } catch (ClassNotFoundException ignored) {
+            return false;
+        }
     }
 
     public void runDelayed(Player player, long delayTicks, Runnable task) {
@@ -44,6 +55,6 @@ public class SchedulerAdapter {
     }
 
     public static boolean isFolia() {
-        return Bukkit.getServer().getName().equalsIgnoreCase("Folia");
+        return REGIONIZED;
     }
 }

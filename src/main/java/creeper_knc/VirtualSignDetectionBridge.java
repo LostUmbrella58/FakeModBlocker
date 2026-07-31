@@ -33,7 +33,7 @@ public class VirtualSignDetectionBridge implements Listener {
     private FileConfiguration config;
     private final Map<UUID, DetectSession> detectSessions = new ConcurrentHashMap<>();
     private final Map<UUID, Inventory> flashInventories = new ConcurrentHashMap<>();
-    private final List<ModBlocker.DetectionModConfig> signDetectConfigs = new ArrayList<>();
+    private final List<LineEntry> lineEntries = new ArrayList<>();
 
     public VirtualSignDetectionBridge(FakeModBlocker plugin, ModBlocker parent) {
         this.plugin = plugin;
@@ -44,7 +44,7 @@ public class VirtualSignDetectionBridge implements Listener {
 
     public void reload() {
         this.config = plugin.getConfig();
-        signDetectConfigs.clear();
+        lineEntries.clear();
 
         ConfigurationSection root = config.getConfigurationSection("extra-detections.sign-translation.mods");
         if (root == null) {
@@ -60,24 +60,24 @@ public class VirtualSignDetectionBridge implements Listener {
             ConfigurationSection detectSec = section.getConfigurationSection("detect");
             ConfigurationSection punishmentSec = section.getConfigurationSection("punishment");
 
-            String key;
+            ConfigurationSection keySource = detectSec != null ? detectSec : section;
+            List<String> keys = ModBlocker.readKeys(keySource);
+
             String actionRaw;
             String reason;
             String duration;
 
             if (detectSec != null || punishmentSec != null) {
-                key = detectSec != null ? detectSec.getString("key") : null;
                 actionRaw = punishmentSec != null ? punishmentSec.getString("action", "NOTICE") : "NOTICE";
                 reason = punishmentSec != null ? punishmentSec.getString("reason") : null;
                 duration = punishmentSec != null ? punishmentSec.getString("duration") : null;
             } else {
-                key = section.getString("key");
                 actionRaw = section.getString("action", "NOTICE");
                 reason = section.getString("reason");
                 duration = section.getString("duration");
             }
 
-            if (key == null || key.isEmpty()) {
+            if (keys.isEmpty()) {
                 continue;
             }
 
@@ -88,7 +88,10 @@ public class VirtualSignDetectionBridge implements Listener {
                 action = ModBlocker.DetectionAction.NOTICE;
             }
 
-            signDetectConfigs.add(new ModBlocker.DetectionModConfig(modName, key, action, reason, duration));
+            ModBlocker.DetectionModConfig mod = new ModBlocker.DetectionModConfig(modName, keys, action, reason, duration);
+            for (String k : keys) {
+                lineEntries.add(new LineEntry(mod, k));
+            }
         }
     }
 
@@ -136,14 +139,14 @@ public class VirtualSignDetectionBridge implements Listener {
             return;
         }
 
-        if (signDetectConfigs.isEmpty()) {
+        if (lineEntries.isEmpty()) {
             cleanup(uuid);
             return;
         }
 
         int page = session.page;
         int start = page * PAGE_SIZE;
-        if (start >= signDetectConfigs.size()) {
+        if (start >= lineEntries.size()) {
             restoreClientBlock(player, session.signLocation);
             cleanup(uuid);
             return;
@@ -152,7 +155,7 @@ public class VirtualSignDetectionBridge implements Listener {
         session.openToken++;
         final int token = session.openToken;
         session.waitingResponse = true;
-        int end = Math.min(start + PAGE_SIZE, signDetectConfigs.size());
+        int end = Math.min(start + PAGE_SIZE, lineEntries.size());
 
         Location signLocation = session.signLocation;
 
@@ -188,10 +191,10 @@ public class VirtualSignDetectionBridge implements Listener {
                         continue;
                     }
 
-                    ModBlocker.DetectionModConfig detectConfig = signDetectConfigs.get(configIndex);
+                    LineEntry entry = lineEntries.get(configIndex);
                     virtualSign.getSide(Side.BACK).line(
                             i,
-                            Component.text("[FSM" + i + "] ").append(Component.translatable(detectConfig.getKey()))
+                            Component.text("[FSM_T" + token + "_" + i + "] ").append(Component.translatable(entry.key))
                     );
                 }
 
@@ -231,7 +234,7 @@ public class VirtualSignDetectionBridge implements Listener {
                             restoreClientBlock(player, latest.signLocation);
 
                             int nextPage = latest.page + 1;
-                            if (nextPage * PAGE_SIZE < signDetectConfigs.size()) {
+                            if (nextPage * PAGE_SIZE < lineEntries.size()) {
                                 latest.page = nextPage;
                                 plugin.getScheduler().runDelayed(player, NEXT_PAGE_DELAY_TICKS, () -> {
                                     if (!player.isOnline()) {
@@ -288,8 +291,25 @@ public class VirtualSignDetectionBridge implements Listener {
         if (!session.waitingResponse) {
             return;
         }
-        session.waitingResponse = false;
 
+        List<String> plainLines = new ArrayList<>();
+        PlainTextComponentSerializer serializer = PlainTextComponentSerializer.plainText();
+        for (Component line : event.lines()) {
+            plainLines.add(serializer.serialize(line));
+        }
+
+        int responseToken = extractMarkerToken(plainLines);
+        if (responseToken >= 0 && responseToken != session.openToken) {
+            event.setCancelled(true);
+            restoreClientBlock(player, session.signLocation);
+            if (config.getBoolean("logger")) {
+                parent.logToConsole("Sign detection: discarded stale response (token "
+                        + responseToken + " vs current " + session.openToken + ") for " + player.getName());
+            }
+            return;
+        }
+
+        session.waitingResponse = false;
         event.setCancelled(true);
 
         if (!player.isOnline()) {
@@ -303,16 +323,10 @@ public class VirtualSignDetectionBridge implements Listener {
             return;
         }
 
-        if (signDetectConfigs.isEmpty()) {
+        if (lineEntries.isEmpty()) {
             restoreClientBlock(player, session.signLocation);
             cleanup(uuid);
             return;
-        }
-
-        List<String> plainLines = new ArrayList<>();
-        PlainTextComponentSerializer serializer = PlainTextComponentSerializer.plainText();
-        for (Component line : event.lines()) {
-            plainLines.add(serializer.serialize(line));
         }
 
         if (config.getBoolean("logger")) {
@@ -320,7 +334,7 @@ public class VirtualSignDetectionBridge implements Listener {
         }
 
         int start = session.page * PAGE_SIZE;
-        int end = Math.min(start + PAGE_SIZE, signDetectConfigs.size());
+        int end = Math.min(start + PAGE_SIZE, lineEntries.size());
 
         for (int lineIndex = 0; lineIndex < plainLines.size(); lineIndex++) {
             int configIndex = start + lineIndex;
@@ -328,23 +342,24 @@ public class VirtualSignDetectionBridge implements Listener {
                 continue;
             }
 
-            ModBlocker.DetectionModConfig detectConfig = signDetectConfigs.get(configIndex);
+            LineEntry entry = lineEntries.get(configIndex);
             String plain = plainLines.get(lineIndex) == null ? "" : plainLines.get(lineIndex).trim();
-            String marker = "[FSM" + lineIndex + "]";
+            String marker = "[FSM_T" + session.openToken + "_" + lineIndex + "]";
 
             if (config.getBoolean("logger")) {
-                parent.logToConsole("Sign match -> mod=" + detectConfig.getName()
-                        + ", key=" + detectConfig.getKey()
-                        + ", plainLine=" + plain);
+                parent.logToConsole("Sign check -> mod=" + entry.mod.getName()
+                        + ", key=" + entry.key
+                        + ", plainLine=" + plain
+                        + ", translated=" + (plain.startsWith(marker) && !plain.contains(entry.key)));
             }
 
-            if (plain.startsWith(marker) && !plain.contains(detectConfig.getKey())) {
+            if (plain.startsWith(marker) && !plain.contains(entry.key)) {
                 if (config.getBoolean("logger")) {
-                    parent.logToConsole("Sign detection hit: " + detectConfig.getName() + " | content=" + plain);
+                    parent.logToConsole("Sign detection hit: " + entry.mod.getName() + " | key=" + entry.key + " | content=" + plain);
                 }
                 restoreClientBlock(player, session.signLocation);
                 cleanup(uuid);
-                parent.handleSignDetection(player, detectConfig);
+                parent.handleSignDetection(player, entry.mod);
                 return;
             }
         }
@@ -352,7 +367,7 @@ public class VirtualSignDetectionBridge implements Listener {
         restoreClientBlock(player, session.signLocation);
 
         int nextPage = session.page + 1;
-        if (nextPage * PAGE_SIZE < signDetectConfigs.size()) {
+        if (nextPage * PAGE_SIZE < lineEntries.size()) {
             session.page = nextPage;
 
             if (config.getBoolean("logger")) {
@@ -374,6 +389,32 @@ public class VirtualSignDetectionBridge implements Listener {
         }
     }
 
+    private int extractMarkerToken(List<String> plainLines) {
+        for (String line : plainLines) {
+            if (line == null) {
+                continue;
+            }
+            String trimmed = line.trim();
+            if (!trimmed.startsWith("[FSM_T")) {
+                continue;
+            }
+            int closeBracket = trimmed.indexOf(']');
+            if (closeBracket <= 6) {
+                continue;
+            }
+            String inner = trimmed.substring(6, closeBracket);
+            int underscore = inner.indexOf('_');
+            if (underscore <= 0) {
+                continue;
+            }
+            try {
+                return Integer.parseInt(inner.substring(0, underscore));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return -1;
+    }
+
     private void restoreClientBlock(Player player, Location loc) {
         if (!player.isOnline()) {
             return;
@@ -384,6 +425,16 @@ public class VirtualSignDetectionBridge implements Listener {
     private void cleanup(UUID uuid) {
         detectSessions.remove(uuid);
         flashInventories.remove(uuid);
+    }
+
+    private static final class LineEntry {
+        private final ModBlocker.DetectionModConfig mod;
+        private final String key;
+
+        private LineEntry(ModBlocker.DetectionModConfig mod, String key) {
+            this.mod = mod;
+            this.key = key;
+        }
     }
 
     private static final class DetectSession {

@@ -15,8 +15,31 @@ useCustomKickCommand: true
 # Custom kick command if enabled (supports %player% and %kickMessage%)
 command: "kick %player% %kickMessage%"
 
-# Keywords to identify forbidden mods from plugin message channels
-# And it's better to add ""
+# =============================================================================
+# forbiddenList — plugin-channel keywords (NOT mod display names)
+# =============================================================================
+# IMPORTANT: entries here are matched against the *plugin channels* a mod
+# registers with the server, NOT the mod's user-facing name.
+#
+#   - "xaeroworldmap"    matches channel "xaeroworldmap:main" (prefix match)
+#   - "servux:tweaks"    matches ONLY exact channel "servux:tweaks" (contains ':')
+#
+# Rule of thumb (see channelMatchesKeyword in source):
+#   * keyword without ':' -> matches channel that equals keyword, OR starts with "keyword:"
+#   * keyword with    ':' -> matches ONLY that exact channel
+#
+# Many popular client-only mods (movement cheats, HUD overlays, GUI clients like
+# Meteor/Wurst/Impact, most utility mods) do NOT register any plugin channel.
+# forbiddenList CANNOT catch those. To detect them you have two options:
+#   1. Turn on `logger` below, join with the mod, and copy the channel it
+#      prints in console (if any) into this list.
+#   2. Use `extra-detections.sign-translation.mods` below and give it a
+#      translation key from that mod's client-side language file. This is
+#      the ONLY way to catch client-only mods that never open a channel.
+#
+# Adding a raw mod name like "meteorclient" or "sodium" here without knowing
+# the real channel will just silently do nothing.
+# =============================================================================
 forbiddenList:
   - "fabric"
   - "forge"
@@ -50,6 +73,29 @@ extra-detections:
   # register channels late in the session. Only takes effect if PacketEvents is installed.
   packet-events:
     enabled: true
+  # -------------------------------------------------------------------------
+  # sign-translation — the "translation-key" side-channel detector
+  # -------------------------------------------------------------------------
+  # How it works (short version):
+  #   The plugin opens a virtual sign to the joining player, whose lines
+  #   contain Component.translatable(<key>). If the player's client resolves
+  #   the key to something other than the raw key string, that client has
+  #   the mod which owns that key loaded -> hit.
+  #
+  # detect.key can be:
+  #   - a single string:   key: "key.freecam.toggle"
+  #   - a list of strings: keys: ["key.mymod.a", "key.mymod.b"]
+  #                        (any one translated -> mod is flagged; useful for
+  #                         mods with several keybinds, or when different mod
+  #                         versions use different key names)
+  #
+  # Requires Paper 1.21.5+ (Player#openVirtualSign was added in 1.21.5 —
+  # it does NOT exist on any 1.21.4 build, and never will). Spigot and some
+  # Paper forks (Purpur / Pufferfish / Leaves) may also lack it depending on
+  # how closely they track upstream Paper. If the API is missing, the
+  # feature auto-disables at startup and console prints the exact class or
+  # method that could not be resolved.
+  # -------------------------------------------------------------------------
   sign-translation:
     enabled: true
     skip-bedrock-via-floodgate: true
@@ -67,3 +113,15 @@ extra-detections:
         punishment:
           action: "KICK"
           reason: "&c&lWarning: Please do not use &b&lAccurateBlockPlacement &c&lon this server."
+
+      # Example: multiple keybind keys for a single mod.
+      # Uncomment and adapt if you know several keys that a mod defines.
+      # Xaero:
+      #   detect:
+      #     keys:
+      #       - "key.xaero_open_map"
+      #       - "key.xaero_zoom_in"
+      #       - "key.xaero_zoom_out"
+      #   punishment:
+      #     action: "KICK"
+      #     reason: "&c&lXaero's Map detected."

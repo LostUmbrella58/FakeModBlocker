@@ -57,10 +57,24 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
             }
 
             ModBlocker modBlocker = FakeModBlocker.getInstance().getModBlocker();
-            if (modBlocker != null && modBlocker.triggerSignDetection(target)) {
+            ModBlocker.SignDetectionState state = modBlocker == null
+                    ? null
+                    : modBlocker.startSignDetection(target);
+
+            if (state == ModBlocker.SignDetectionState.STARTED) {
                 MessageBridge.send(sender, getMsg("command.sign-check-triggered").replace("%player%", target.getName()));
             } else {
-                MessageBridge.send(sender, getMsg("command.sign-check-skipped").replace("%player%", target.getName()));
+                String reason = describeSkip(state);
+                String template = getMsg("command.sign-check-skipped");
+                if (template.contains("%reason%")) {
+                    MessageBridge.send(sender, template
+                            .replace("%player%", target.getName())
+                            .replace("%reason%", reason));
+                } else {
+                    // Older messages_*.yml files have no %reason% placeholder.
+                    MessageBridge.send(sender, template.replace("%player%", target.getName()));
+                    MessageBridge.send(sender, getMsg("command.sign-check-reason-prefix", "&7Reason: &f") + reason);
+                }
             }
             return true;
         }
@@ -90,7 +104,30 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
         return Collections.emptyList();
     }
 
+    private String describeSkip(ModBlocker.SignDetectionState state) {
+        if (state == null) {
+            return getMsg("command.sign-check-reason-unavailable", "plugin is not initialized");
+        }
+        return switch (state) {
+            case DISABLED -> getMsg("command.sign-check-reason-disabled",
+                    "disabled in config (extra-detections.sign-translation.enabled)");
+            case BEDROCK_SKIPPED -> getMsg("command.sign-check-reason-bedrock",
+                    "Bedrock player, skipped via Floodgate");
+            case UNSUPPORTED -> getMsg("command.sign-check-reason-unsupported",
+                    "this server/API does not support the virtual sign check");
+            case BRIDGE_UNAVAILABLE -> getMsg("command.sign-check-reason-bridge",
+                    "the detection listener failed to register - see console");
+            case START_FAILED -> getMsg("command.sign-check-reason-failed",
+                    "the check could not be started - see console");
+            default -> getMsg("command.sign-check-reason-unavailable", "unknown");
+        };
+    }
+
     private String getMsg(String path) {
         return FakeModBlocker.getInstance().getMessages().getString(path, "&cMissing message: " + path);
+    }
+
+    private String getMsg(String path, String fallback) {
+        return FakeModBlocker.getInstance().getMessages().getString(path, fallback);
     }
 }

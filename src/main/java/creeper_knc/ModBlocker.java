@@ -8,6 +8,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -15,6 +16,7 @@ import org.bukkit.plugin.messaging.PluginMessageListener;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.jetbrains.annotations.NotNull;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Date;
@@ -23,6 +25,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class ModBlocker implements Listener, PluginMessageListener {
@@ -33,30 +36,30 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
     private FileConfiguration config = FakeModBlocker.getInstance().getConfig();
     private final List<DetectionModConfig> signDetectConfigs = new ArrayList<>();
-    private final boolean signDetectionSupported;
+    private final boolean signDetectionApiSupported;
     private final Set<UUID> handledChannelKick = ConcurrentHashMap.newKeySet();
 
     private Object signDetectionBridge;
     private Object packetEventsBridge;
 
+    /** Why the API check failed, or null when the API is usable. */
+    private String signApiUnsupportedReason;
+    /** Why the listener could not be registered, or null when the bridge is live. */
+    private String signBridgeFailure;
+    /** Keeps a broken bridge from spamming one warning per player join. */
+    private boolean signBridgeWarned;
+    /** Warn once per reload cycle when the feature is on but the server cannot run it. */
+    private boolean signApiWarned;
+
     public ModBlocker() {
         loadSignDetectionConfigs();
-        this.signDetectionSupported = detectSignDetectionSupport();
+        this.signDetectionApiSupported = detectSignDetectionApiSupport();
 
-        if (this.signDetectionSupported) {
-            tryCreateAndRegisterSignBridge();
-        }
-
-        if (config.getBoolean("extra-detections.packet-events.enabled", true)) {
-            if (detectPacketEventsSupport()) {
-                tryCreateAndRegisterPacketEventsBridge();
-            } else if (config.getBoolean("logger")) {
-                logToConsole("PacketEvents not detected. Packet-level channel detection disabled.");
-            }
-        }
+        syncSignDetectionBridge();
+        syncPacketEventsBridge();
 
         if (config.getBoolean("logger")) {
-            logToConsole("Sign translation detection support: " + signDetectionSupported);
+            logToConsole("Sign translation detection: " + describeSignDetectionState());
             logToConsole("Packet-level channel detection support: " + (packetEventsBridge != null));
         }
     }
@@ -64,6 +67,13 @@ public class ModBlocker implements Listener, PluginMessageListener {
     public void reloadModBlockerConfig() {
         this.config = FakeModBlocker.getInstance().getConfig();
         loadSignDetectionConfigs();
+
+        // Let a reload recover from a failed startup and follow enable/disable
+        // toggles, instead of forcing a full server restart.
+        signBridgeWarned = false;
+        signApiWarned = false;
+        syncSignDetectionBridge();
+        syncPacketEventsBridge();
 
         if (signDetectionBridge != null) {
             try {
@@ -77,25 +87,13 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
 
         if (config.getBoolean("logger")) {
-            logToConsole("Configuration reloaded. Sign translation detection support: " + signDetectionSupported);
+            logToConsole("Configuration reloaded. Sign translation detection: " + describeSignDetectionState());
         }
     }
 
     public void shutdown() {
-        if (signDetectionBridge != null) {
-            try {
-                Method shutdownMethod = signDetectionBridge.getClass().getMethod("shutdown");
-                shutdownMethod.invoke(signDetectionBridge);
-            } catch (Throwable ignored) {
-            }
-        }
-        if (packetEventsBridge != null) {
-            try {
-                Method shutdownMethod = packetEventsBridge.getClass().getMethod("shutdown");
-                shutdownMethod.invoke(packetEventsBridge);
-            } catch (Throwable ignored) {
-            }
-        }
+        disposeSignDetectionBridge();
+        disposePacketEventsBridge();
         handledChannelKick.clear();
     }
 
@@ -174,37 +172,61 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     public boolean triggerSignDetection(Player player) {
+        return startSignDetection(player) == SignDetectionState.STARTED;
+    }
+
+    /**
+     * Same as {@link #triggerSignDetection(Player)}, but reports why the check did not run.
+     * Every branch leaves a trace in console, so a skip is never silent.
+     */
+    public SignDetectionState startSignDetection(Player player) {
         if (!config.getBoolean("extra-detections.sign-translation.enabled", false)) {
-            return false;
+            if (config.getBoolean("logger")) {
+                logToConsole("Sign translation detection skipped for " + player.getName() + ": disabled in config.");
+            }
+            return SignDetectionState.DISABLED;
         }
 
         if (shouldSkipSignDetectionForBedrock(player)) {
             if (config.getBoolean("logger")) {
                 logToConsole("Skipped sign translation detection for Bedrock player via Floodgate: " + player.getName());
             }
-            return false;
+            return SignDetectionState.BEDROCK_SKIPPED;
         }
 
-        if (!signDetectionSupported) {
+        if (!signDetectionApiSupported) {
             if (config.getBoolean("logger")) {
-                logToConsole("Sign translation detection is enabled in config, but current server/API does not support it. Skipped for " + player.getName());
+                logToConsole("Sign translation detection is enabled in config, but current server/API does not support it ("
+                        + signApiUnsupportedReason + "). Skipped for " + player.getName());
             }
-            return false;
+            return SignDetectionState.UNSUPPORTED;
         }
 
         if (signDetectionBridge == null) {
-            return false;
+            // A broken install, not a configuration choice: warn once even when logger is off,
+            // otherwise this state looks exactly like "disabled" from the console.
+            String reason = signBridgeFailure != null ? signBridgeFailure : "bridge was never created";
+            if (!signBridgeWarned) {
+                signBridgeWarned = true;
+                FakeModBlocker.getInstance().getLogger().warning("Sign translation detection is enabled, but its listener"
+                        + " is not registered (" + reason + "). The check is being skipped for every player, starting with "
+                        + player.getName() + ". Run /modblocker reload to retry.");
+            } else if (config.getBoolean("logger")) {
+                logToConsole("Sign translation detection skipped for " + player.getName()
+                        + ": listener not registered (" + reason + ").");
+            }
+            return SignDetectionState.BRIDGE_UNAVAILABLE;
         }
 
         try {
             Method method = signDetectionBridge.getClass().getMethod("openSignCheckLater", Player.class);
             method.invoke(signDetectionBridge, player);
-            return true;
+            return SignDetectionState.STARTED;
         } catch (Throwable t) {
-            if (config.getBoolean("logger")) {
-                logToConsole("Failed to start sign detection for " + player.getName() + ": " + t.getMessage());
-            }
-            return false;
+            Throwable cause = unwrap(t);
+            FakeModBlocker.getInstance().getLogger().log(Level.WARNING,
+                    "Failed to start sign detection for " + player.getName(), cause);
+            return SignDetectionState.START_FAILED;
         }
     }
 
@@ -222,7 +244,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
         for (String channel : player.getListeningPluginChannels()) {
             for (String keyword : forbidden) {
-                if (channel.toLowerCase(Locale.ROOT).contains(keyword.toLowerCase(Locale.ROOT))) {
+                if (channelMatchesKeyword(channel, keyword)) {
                     flagged = true;
                     if (!detected.contains(keyword)) {
                         detected.add(keyword);
@@ -349,19 +371,27 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
     }
 
-    private boolean detectSignDetectionSupport() {
-        if (!config.getBoolean("extra-detections.sign-translation.enabled", false)) {
-            return false;
-        }
-
-        try {
-            Class.forName("io.papermc.paper.event.packet.UncheckedSignChangeEvent");
-            Class.forName("io.papermc.paper.math.Position");
-            Class.forName("org.bukkit.block.sign.Side");
-            Class.forName("org.bukkit.block.data.type.WallSign");
-            Class.forName("net.kyori.adventure.text.Component");
-        } catch (Throwable t) {
-            return false;
+    /**
+     * Pure API probe: whether this server exposes everything the virtual sign check needs.
+     * Deliberately independent of the config toggle, so enabling the feature and reloading
+     * can activate it without a restart.
+     */
+    private boolean detectSignDetectionApiSupport() {
+        String[] requiredClasses = {
+                "io.papermc.paper.event.packet.UncheckedSignChangeEvent",
+                "io.papermc.paper.math.Position",
+                "org.bukkit.block.sign.Side",
+                "org.bukkit.block.data.type.WallSign",
+                "net.kyori.adventure.text.Component"
+        };
+        for (String name : requiredClasses) {
+            try {
+                Class.forName(name);
+            } catch (Throwable t) {
+                this.signApiUnsupportedReason = "missing class " + name
+                        + " (server is not Paper, or Paper build is too old)";
+                return false;
+            }
         }
 
         try {
@@ -371,15 +401,60 @@ public class ModBlocker implements Listener, PluginMessageListener {
             Class<?> blockDataClass = Class.forName("org.bukkit.block.data.BlockData");
             Class<?> signClass = Class.forName("org.bukkit.block.Sign");
 
-            Player.class.getMethod("openVirtualSign", positionClass, sideClass);
-            Player.class.getMethod("sendBlockUpdate", Location.class, tileStateClass);
-            Player.class.getMethod("sendBlockChange", Location.class, blockDataClass);
-            signClass.getMethod("getSide", sideClass);
+            checkMethod(Player.class, "openVirtualSign", positionClass, sideClass);
+            checkMethod(Player.class, "sendBlockUpdate", Location.class, tileStateClass);
+            checkMethod(Player.class, "sendBlockChange", Location.class, blockDataClass);
+            checkMethod(signClass, "getSide", sideClass);
 
+            this.signApiUnsupportedReason = null;
             return true;
-        } catch (Throwable ignored) {
+        } catch (NoSuchMethodException e) {
+            this.signApiUnsupportedReason = "missing method " + e.getMessage()
+                    + " (Paper API too old; sign-translation needs Player#openVirtualSign, which was added in Paper 1.21.5"
+                    + " and does not exist on 1.21.4 or earlier; Spigot and some Paper forks like Purpur/Pufferfish/Leaves may also lack it)";
+            return false;
+        } catch (Throwable t) {
+            this.signApiUnsupportedReason = t.getClass().getSimpleName() + " - " + t.getMessage();
             return false;
         }
+    }
+
+    private void checkMethod(Class<?> owner, String name, Class<?>... args) throws NoSuchMethodException {
+        try {
+            owner.getMethod(name, args);
+        } catch (NoSuchMethodException e) {
+            StringBuilder sb = new StringBuilder(owner.getName()).append('#').append(name).append('(');
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(args[i].getSimpleName());
+            }
+            sb.append(')');
+            throw new NoSuchMethodException(sb.toString());
+        }
+    }
+
+    /** Human-readable state of the sign check, used for every status line. */
+    private String describeSignDetectionState() {
+        if (!config.getBoolean("extra-detections.sign-translation.enabled", false)) {
+            return "INACTIVE (disabled in config)";
+        }
+        if (!signDetectionApiSupported) {
+            return "INACTIVE (unsupported server/API: " + signApiUnsupportedReason + ")";
+        }
+        if (signDetectionBridge == null) {
+            return "INACTIVE (listener not registered: "
+                    + (signBridgeFailure != null ? signBridgeFailure : "bridge was never created") + ")";
+        }
+        return "ACTIVE";
+    }
+
+    private static Throwable unwrap(Throwable t) {
+        if (t instanceof InvocationTargetException && t.getCause() != null) {
+            return t.getCause();
+        }
+        return t;
     }
 
     private boolean detectPacketEventsSupport() {
@@ -390,6 +465,44 @@ public class ModBlocker implements Listener, PluginMessageListener {
             return Bukkit.getPluginManager().getPlugin("packetevents") != null;
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    /** Brings the PacketEvents bridge in line with the current config. */
+    private void syncPacketEventsBridge() {
+        if (!config.getBoolean("extra-detections.packet-events.enabled", true)) {
+            if (packetEventsBridge != null) {
+                disposePacketEventsBridge();
+                if (config.getBoolean("logger")) {
+                    logToConsole("Packet-level channel detection disabled in config; bridge unloaded.");
+                }
+            }
+            return;
+        }
+
+        if (packetEventsBridge != null) {
+            return;
+        }
+
+        if (!detectPacketEventsSupport()) {
+            if (config.getBoolean("logger")) {
+                logToConsole("PacketEvents not detected. Packet-level channel detection disabled.");
+            }
+            return;
+        }
+
+        tryCreateAndRegisterPacketEventsBridge();
+    }
+
+    private void disposePacketEventsBridge() {
+        Object bridge = this.packetEventsBridge;
+        this.packetEventsBridge = null;
+        if (bridge == null) {
+            return;
+        }
+        try {
+            bridge.getClass().getMethod("shutdown").invoke(bridge);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -408,10 +521,12 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 logToConsole("PacketEvents bridge loaded successfully.");
             }
         } catch (Throwable t) {
+            // Only reached when PacketEvents itself is installed, so any failure here is a
+            // packaging/compatibility problem worth surfacing rather than an optional dependency.
             this.packetEventsBridge = null;
-            if (config.getBoolean("logger")) {
-                logToConsole("PacketEvents bridge not available: " + t.getClass().getSimpleName() + ": " + t.getMessage());
-            }
+            FakeModBlocker.getInstance().getLogger().log(Level.WARNING,
+                    "PacketEvents is installed and packet-level detection is enabled, but the bridge could not be loaded."
+                            + " Packet-level channel detection stays off.", unwrap(t));
         }
     }
 
@@ -426,12 +541,11 @@ public class ModBlocker implements Listener, PluginMessageListener {
             return;
         }
 
-        String lower = channel.toLowerCase(Locale.ROOT);
         List<String> forbidden = config.getStringList("forbiddenList");
         List<String> matched = new ArrayList<>();
 
         for (String keyword : forbidden) {
-            if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
+            if (channelMatchesKeyword(channel, keyword)) {
                 if (!matched.contains(keyword)) {
                     matched.add(keyword);
                 }
@@ -467,26 +581,81 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
     }
 
+    /** Brings the sign bridge in line with the current config: create, keep, or tear down. */
+    private void syncSignDetectionBridge() {
+        if (!config.getBoolean("extra-detections.sign-translation.enabled", false)) {
+            if (signDetectionBridge != null) {
+                disposeSignDetectionBridge();
+                if (config.getBoolean("logger")) {
+                    logToConsole("Sign translation detection disabled in config; bridge unloaded.");
+                }
+            }
+            return;
+        }
+
+        if (!signDetectionApiSupported) {
+            if (!signApiWarned) {
+                signApiWarned = true;
+                FakeModBlocker.getInstance().getLogger().warning("Sign translation detection is enabled in config, but this"
+                        + " server does not support it (" + signApiUnsupportedReason + "). The check stays off.");
+            }
+            return;
+        }
+
+        if (signDetectionBridge != null) {
+            return;
+        }
+
+        tryCreateAndRegisterSignBridge();
+    }
+
+    private void disposeSignDetectionBridge() {
+        Object bridge = this.signDetectionBridge;
+        this.signDetectionBridge = null;
+        if (bridge == null) {
+            return;
+        }
+        try {
+            bridge.getClass().getMethod("shutdown").invoke(bridge);
+        } catch (Throwable ignored) {
+        }
+        if (bridge instanceof Listener listener) {
+            HandlerList.unregisterAll(listener);
+        }
+    }
+
     private void tryCreateAndRegisterSignBridge() {
+        Object bridge = null;
         try {
             Class<?> bridgeClass = Class.forName("creeper_knc.VirtualSignDetectionBridge");
             Constructor<?> constructor = bridgeClass.getConstructor(FakeModBlocker.class, ModBlocker.class);
-            Object bridge = constructor.newInstance(FakeModBlocker.getInstance(), this);
+            bridge = constructor.newInstance(FakeModBlocker.getInstance(), this);
 
             if (bridge instanceof Listener listener) {
                 Bukkit.getPluginManager().registerEvents(listener, FakeModBlocker.getInstance());
             }
 
             this.signDetectionBridge = bridge;
+            this.signBridgeFailure = null;
 
             if (config.getBoolean("logger")) {
                 logToConsole("Virtual sign detection bridge loaded successfully.");
             }
         } catch (Throwable t) {
+            Throwable cause = unwrap(t);
             this.signDetectionBridge = null;
-            if (config.getBoolean("logger")) {
-                logToConsole("Virtual sign detection bridge not available: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            this.signBridgeFailure = cause.getClass().getSimpleName()
+                    + (cause.getMessage() != null ? ": " + cause.getMessage() : "");
+
+            // registerEvents() gives up part-way through the listener's handlers, so drop
+            // whatever did get registered instead of leaving half a listener behind.
+            if (bridge instanceof Listener listener) {
+                HandlerList.unregisterAll(listener);
             }
+
+            FakeModBlocker.getInstance().getLogger().log(Level.WARNING,
+                    "Sign translation detection is enabled in config, but its listener could not be registered."
+                            + " The check will be skipped for every player until this is fixed.", cause);
         }
     }
 
@@ -571,26 +740,26 @@ public class ModBlocker implements Listener, PluginMessageListener {
             ConfigurationSection detectSec = section.getConfigurationSection("detect");
             ConfigurationSection punishmentSec = section.getConfigurationSection("punishment");
 
-            String key;
+            ConfigurationSection keySource = detectSec != null ? detectSec : section;
+            List<String> keys = readKeys(keySource);
+
             String actionRaw;
             String reason;
             String duration;
 
             if (detectSec != null || punishmentSec != null) {
-                key = detectSec != null ? detectSec.getString("key") : null;
                 actionRaw = punishmentSec != null ? punishmentSec.getString("action", "NOTICE") : "NOTICE";
                 reason = punishmentSec != null ? punishmentSec.getString("reason") : null;
                 duration = punishmentSec != null ? punishmentSec.getString("duration") : null;
             } else {
-                key = section.getString("key");
                 actionRaw = section.getString("action", "NOTICE");
                 reason = section.getString("reason");
                 duration = section.getString("duration");
             }
 
-            if (key == null || key.isEmpty()) {
+            if (keys.isEmpty()) {
                 if (config.getBoolean("logger")) {
-                    logToConsole("Sign detection config missing key: " + modName);
+                    logToConsole("Sign detection config missing key/keys: " + modName);
                 }
                 continue;
             }
@@ -602,16 +771,36 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 action = DetectionAction.NOTICE;
             }
 
-            signDetectConfigs.add(new DetectionModConfig(modName, key, action, reason, duration));
+            signDetectConfigs.add(new DetectionModConfig(modName, keys, action, reason, duration));
 
             if (config.getBoolean("logger")) {
-                logToConsole("Loaded sign detection item: " + modName + " | key=" + key + " | action=" + action);
+                logToConsole("Loaded sign detection item: " + modName + " | keys=" + keys + " | action=" + action);
             }
         }
 
         if (config.getBoolean("logger")) {
             logToConsole("Loaded total sign detection items: " + signDetectConfigs.size());
         }
+    }
+
+    static List<String> readKeys(ConfigurationSection section) {
+        if (section == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        List<String> list = section.getStringList("keys");
+        if (list != null) {
+            for (String s : list) {
+                if (s != null && !s.isEmpty()) {
+                    out.add(s);
+                }
+            }
+        }
+        String single = section.getString("key");
+        if (single != null && !single.isEmpty()) {
+            out.add(single);
+        }
+        return out;
     }
 
     @Override
@@ -641,6 +830,20 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
     }
 
+    private boolean channelMatchesKeyword(String channel, String keyword) {
+        if (channel == null || keyword == null || keyword.isEmpty()) {
+            return false;
+        }
+        String ch = channel.toLowerCase(Locale.ROOT);
+        String kw = keyword.toLowerCase(Locale.ROOT);
+
+        if (kw.contains(":")) {
+            return ch.equals(kw);
+        }
+
+        return ch.equals(kw) || ch.startsWith(kw + ":");
+    }
+
     void logToConsole(String msg) {
         String finalMessage = getMessage("prefix") + msg;
         CommandSender console = Bukkit.getConsoleSender();
@@ -655,16 +858,32 @@ public class ModBlocker implements Listener, PluginMessageListener {
         NOTICE, KICK, BAN, IGNORE
     }
 
+    /** Outcome of a sign-translation check request. */
+    public enum SignDetectionState {
+        /** The virtual sign was scheduled for the player. */
+        STARTED,
+        /** extra-detections.sign-translation.enabled is false. */
+        DISABLED,
+        /** Bedrock player, skipped through Floodgate. */
+        BEDROCK_SKIPPED,
+        /** Server/API lacks the virtual sign API. */
+        UNSUPPORTED,
+        /** Feature is on and supported, but the listener is not registered. */
+        BRIDGE_UNAVAILABLE,
+        /** The bridge exists but threw while starting the check. */
+        START_FAILED
+    }
+
     public static class DetectionModConfig {
         private final String name;
-        private final String key;
+        private final List<String> keys;
         private final DetectionAction action;
         private final String reason;
         private final String duration;
 
-        public DetectionModConfig(String name, String key, DetectionAction action, String reason, String duration) {
+        public DetectionModConfig(String name, List<String> keys, DetectionAction action, String reason, String duration) {
             this.name = name;
-            this.key = key;
+            this.keys = keys == null ? List.of() : List.copyOf(keys);
             this.action = action;
             this.reason = reason;
             this.duration = duration;
@@ -674,8 +893,12 @@ public class ModBlocker implements Listener, PluginMessageListener {
             return name;
         }
 
+        public List<String> getKeys() {
+            return keys;
+        }
+
         public String getKey() {
-            return key;
+            return keys.isEmpty() ? null : keys.get(0);
         }
 
         public DetectionAction getAction() {

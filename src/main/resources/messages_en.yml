@@ -34,4 +34,12 @@ command:
   check-matched: "&cMatched forbidden keywords:"
   check-none: "&aNo forbidden MOD keywords detected."
   sign-check-triggered: "&eSign translation detection started for &f%player%&e. Watch console for results."
-  sign-check-skipped: "&7Sign translation detection skipped for &f%player%&7 (disabled / unsupported / Bedrock)."
+  sign-check-skipped: "&7Sign translation detection skipped for &f%player%&7: &f%reason%"
+  # Shown after sign-check-skipped only when that message has no %reason% placeholder.
+  sign-check-reason-prefix: "&7Reason: &f"
+  sign-check-reason-disabled: "disabled in config (extra-detections.sign-translation.enabled)"
+  sign-check-reason-bedrock: "Bedrock player, skipped via Floodgate"
+  sign-check-reason-unsupported: "this server/API does not support the virtual sign check"
+  sign-check-reason-bridge: "the detection listener failed to register - see console"
+  sign-check-reason-failed: "the check could not be started - see console"
+  sign-check-reason-unavailable: "plugin is not initialized"
