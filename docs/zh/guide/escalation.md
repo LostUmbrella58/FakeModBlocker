@@ -19,20 +19,25 @@ escalation:
   ladder:
     - violations: 1
       action: KICK
-      message: |-
-        &c&l警告 &7(第 %count% 次)
-        &f检测到你正在使用 &c%mod%&f，本服禁止该模组。
-        &7请卸载后再进服——再次带着它进来将被&c&l永久封禁&7。
     - violations: 2
       action: BAN
       duration: ""      # 留空 / 0 / "permanent" 表示永久
-      message: |-
-        &4&l已封禁
-        &f你在被警告后再次带着 &c%mod%&f 进服。
-        &7累计 &f%count% &7次｜时长：&f%duration%
 ```
 
 改完执行 `/modblocker reload`。
+
+以上就是插件自带的默认阶梯，只需要把 `enabled` 改成 `true`。文案取自[语言文件](./messages)里的
+`escalation.warn` / `escalation.kick` / `escalation.ban`，会自动跟随 `language:` 切换中英文。
+只有想单独覆盖某一级时才写 `message:`：
+
+```yaml
+    - violations: 1
+      action: KICK
+      message: |-
+        &c&l警告 &7(第 %count% 次)
+        &f检测到你正在使用 &c%mod%&f，本服禁止该模组。
+        &7请卸载后再进服，再次带着它进来将被永久封禁。
+```
 
 ## 哪些检测会走阶梯
 

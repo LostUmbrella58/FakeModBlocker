@@ -15,7 +15,7 @@ It also supports an **optional advanced sign translation detection module** on s
 ✅ Hex Color Code support for 1.16+ servers (e.g. `&#00ffcc`)  
 ✅ No dependencies — drop-in and go  
 ✅ Works across a wide range of server versions (1.8–1.21.11+)  
-✅ Multi-language support (`en`, `cn`, and your own language)  
+✅ Bilingual out of the box — `messages_en.yml` and `messages_cn.yml` both ship and are generated on first start (add your own suffix any time)  
 ✅ Reload support: `/modblocker reload`  
 ✅ Spigot / Paper / Purpur / Folia / PandaSpigot support  
 ✅ Optional advanced **sign translation key detection** on supported server APIs  

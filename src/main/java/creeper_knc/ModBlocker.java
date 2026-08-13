@@ -845,9 +845,11 @@ public class ModBlocker implements Listener, PluginMessageListener {
                     || ch.contains("mod")
                     || ch.contains("lunar")
                     || ch.contains("fml")) {
+                String unknown = getMessage("log.unknown-channel", "unknown channel: %channel%")
+                        .replace("%channel%", channel);
                 logToConsole(getMessage("log.plugin-message")
                         .replace("%player%", player.getName())
-                        .replace("%mod%", "未知频道: " + channel));
+                        .replace("%mod%", unknown));
             }
         } else {
             logToConsole(getMessage("log.plugin-message")
@@ -877,7 +879,21 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     String getMessage(String path) {
-        return FakeModBlocker.getInstance().getMessages().getString(path, "");
+        return getMessage(path, "");
+    }
+
+    /**
+     * Single-argument {@code getString} on purpose: only that form consults the defaults layer,
+     * which is the language file bundled in the jar. The two-argument form would skip it and
+     * hand back the fallback for every key the admin's file predates.
+     */
+    String getMessage(String path, String fallback) {
+        FileConfiguration messages = FakeModBlocker.getInstance().getMessages();
+        if (messages == null) {
+            return fallback;
+        }
+        String value = messages.getString(path);
+        return value == null ? fallback : value;
     }
 
     public enum DetectionAction {

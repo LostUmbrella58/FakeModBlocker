@@ -5,7 +5,7 @@
 ## 基础选项
 
 ```yaml
-language: en          # 语言文件后缀，对应 messages_en.yml
+language: en          # 语言文件后缀，对应 messages_en.yml（自带 en 与 cn 两份）
 enable: true          # 总开关
 logger: true          # 控制台打印玩家频道 / 模组相关消息（便于收集关键词）
 useCustomKickCommand: true
@@ -16,7 +16,7 @@ notificationPermission: fakemodblocker.notify
 
 | 选项 | 说明 |
 |------|------|
-| `language` | 加载 `messages_<language>.yml` |
+| `language` | 加载 `messages_<language>.yml`，自带 `en` 与 `cn`，详见[消息与多语言](./messages) |
 | `enable` | `false` 时关闭模组检测 |
 | `logger` | 开启后控制台会刷频道列表，适合排查，生产环境可按需关闭 |
 | `useCustomKickCommand` | 是否用自定义踢出命令代替默认踢人 |

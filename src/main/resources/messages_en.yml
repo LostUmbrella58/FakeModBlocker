@@ -4,6 +4,7 @@ log:
   channel-list: "Player %player% is listening on plugin channels: %channels%"
   detected-mods: "%player% is using forbidden mods: %mods%"
   plugin-message: "%player% sent mod-related plugin message: %mod%"
+  unknown-channel: "unknown channel: %channel%"
 
 kick:
   reason-default: "&c&lWarning: Detected unauthorized modifications! This server strictly prohibits cheating mods and hacked clients. Please disable them and rejoin."

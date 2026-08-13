@@ -26,5 +26,5 @@ features:
   - title: Optional escalation ladder
     details: Count violations per player and climb warn → kick → ban. Persistent, expiring, and fully configurable.
   - title: Fully customizable messages
-    details: Multi-language messages_xx.yml, hex colors, custom kick commands, and staff notifications.
+    details: Ships English and 简体中文, hex colors, custom kick commands, and staff notifications.
 ---

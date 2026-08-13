@@ -400,11 +400,7 @@ public final class ViolationManager {
     }
 
     private String message(String path, String fallback) {
-        FileConfiguration messages = plugin.getMessages();
-        if (messages == null) {
-            return fallback;
-        }
-        String value = messages.getString(path);
+        String value = parent.getMessage(path, fallback);
         return value == null || value.isEmpty() ? fallback : value;
     }
 

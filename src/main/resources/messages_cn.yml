@@ -1,0 +1,74 @@
+prefix: "&7[&cModBlocker&7] "
+
+log:
+  channel-list: "玩家 %player% 正在监听的插件频道：%channels%"
+  detected-mods: "%player% 使用了被禁止的模组：%mods%"
+  plugin-message: "%player% 发送了模组相关的插件消息：%mod%"
+  unknown-channel: "未知频道：%channel%"
+
+kick:
+  reason-default: "&c&l警告：检测到未经允许的客户端修改！本服严禁作弊模组与破解客户端，请关闭后重新进入。"
+  mods:
+    fabric: "&c检测到 Fabric！请关闭后再进入服务器。"
+    forge: "&c检测到 Forge！请关闭后再进入服务器。"
+    xaeroworldmap: "&c检测到 Xaero 的世界地图！请卸载所有地图类模组后再进服。"
+    xaerominimap: "&c检测到 Xaero 的小地图！本服禁止使用小地图模组。"
+    worldinfo: "&c检测到 World Info 模组！本服禁止使用该模组。"
+    tweakeroo: "&c检测到 Tweakeroo！请关闭后再进服。"
+    creativecore: "&c检测到 CreativeCore，它常与其他整合包模组一起出现，请关闭后再试。"
+    minimapsync: "&c检测到 MinimapSync！请卸载所有地图类工具。"
+    "servux:tweaks": "&c检测到 Servux（Tweakeroo 频道）！本服禁止使用 Tweakeroo。"
+    "servux:structures": "&c检测到 Servux（结构 / MiniHUD 频道）！本服禁止使用 MiniHUD。"
+    axiom: "&c检测到 Axiom！本服禁止使用该客户端。"
+    freecam: "&c检测到 Freecam！本服禁止使用自由视角 / 灵魂出窍类模组。"
+    flashback: "&c检测到 Flashback！请不要使用时间回放类模组。"
+    voxelmap: "&c检测到 VoxelMap！本服禁止使用 VoxelMap 等地图模组。"
+    replay: "&c检测到 Replay Mod！请关闭 Replay Mod 后再进服。"
+
+# 阶梯处罚（累犯计数）系统，仅在 config.yml 里 escalation.enabled 为 true 时生效。
+# 若某一级在 config.yml 中写了自己的 `message:`，则会覆盖这里对应的文本。
+# 占位符：%player% %mod% %count% %step% %steps% %next% %duration% %reason% %source% %action%
+escalation:
+  warn: "&e&l警告 &r&f检测到你正在使用 &c%mod%&f，本服禁止该模组。&7（第 %count% 次）&f请尽快卸载，否则将被移出服务器。"
+  kick: "&c&l警告：&f本服禁止 &c%mod%&c。\n&7这是第 &f%count% &7次，再带着它进服将受到更严厉的处罚。"
+  ban: "&4&l已封禁：&f你在被警告后仍带着 &c%mod%&f 进服。\n&7累计 &f%count% &7次 &7| 时长：&f%duration%"
+  # 发送给拥有通知权限的管理员（遵循 config.yml 里的 notifyStaff）。
+  notify: "&e%player% &7触发阶梯处罚第 &f%step%&7/&f%steps% &7级（&f%action%&7），模组：&f%mod%&7，第 &f%count% &7次"
+  # 每次触发阶梯处罚时打印到控制台的行。
+  log: "%player% 因 %mod%（来源：%source%）累计违规 %count% 次 -> 第 %step%/%steps% 级：%action%"
+  duration-permanent: "永久"
+  next-none: "-"
+  action-warn: "警告"
+  action-kick: "踢出"
+  action-ban: "封禁"
+  action-command: "执行命令"
+  action-ignore: "忽略"
+
+command:
+  no-permission: "&c你没有权限使用该命令。"
+  reload-success: "&aModBlocker 的配置与语言文件已重载。"
+  usage: "&e用法：/modblocker <reload | check <玩家> | violations <玩家> | clear <玩家> [模组]>"
+  player-not-found: "&c玩家 %player% 不在线或不存在。"
+  check-header: "&b正在检查 &f%player% &b的模组插件频道："
+  check-channels: "&7已注册的频道："
+  check-matched: "&c命中的违禁关键词："
+  check-none: "&a未检测到违禁的模组关键词。"
+  sign-check-triggered: "&e已对 &f%player% &e启动告示牌翻译检测，结果请看控制台。"
+  sign-check-skipped: "&7已跳过对 &f%player% &7的告示牌翻译检测：&f%reason%"
+  # 仅当上面的 sign-check-skipped 没有 %reason% 占位符时，才会另起一行显示。
+  sign-check-reason-prefix: "&7原因：&f"
+  sign-check-reason-disabled: "配置中已关闭（extra-detections.sign-translation.enabled）"
+  sign-check-reason-bedrock: "基岩版玩家，已通过 Floodgate 跳过"
+  sign-check-reason-unsupported: "当前服务端 / API 不支持虚拟告示牌检测"
+  sign-check-reason-bridge: "检测监听器注册失败，详见控制台"
+  sign-check-reason-failed: "检测启动失败，详见控制台"
+  sign-check-reason-unavailable: "插件尚未初始化"
+  violations-header: "&f%player% &b的违规记录："
+  violations-entry: "&7- &f%mod%&7：&c%count% &7次（最近：&f%time%&7）"
+  violations-expired: " &8(已过期)"
+  violations-global-label: "所有模组"
+  violations-none: "&a玩家 &f%player% &a没有违规记录。"
+  violations-disabled: "&7注意：阶梯处罚当前在 config.yml 中处于关闭状态。"
+  clear-success: "&a已清除 &f%player% &a的 &f%count% &a条违规记录。"
+  clear-none: "&7没有找到 &f%player% &7的违规记录。"
+  escalation-unavailable: "&c阶梯处罚系统尚未初始化。"

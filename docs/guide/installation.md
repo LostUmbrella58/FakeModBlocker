@@ -24,7 +24,7 @@ If these are missing, related features are skipped or fall back quietly.
 2. Place it in `plugins/`
 3. Start (or reload) the server to generate:
    - `plugins/FakeModBlocker/config.yml`
-   - `plugins/FakeModBlocker/messages_en.yml` (and any other locale you enable)
+   - `plugins/FakeModBlocker/messages_en.yml` and `messages_cn.yml` (both are generated; pick one with `language:`)
 4. Edit the config as needed
 5. Run `/modblocker reload` to apply changes
 

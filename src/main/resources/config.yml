@@ -1,4 +1,10 @@
-# You can create more language files to use, or just change messages_en.yml directly
+# Language file to use: messages_<language>.yml in this folder.
+# Two are shipped and written out on first start: "en" (English) and "cn" (简体中文).
+# Copy either one to messages_<your-language>.yml to add your own; edits survive updates,
+# and any key you leave out falls back to the version bundled in the jar.
+# 语言文件：本目录下的 messages_<language>.yml。
+# 插件自带并在首次启动时释放两份：en（英文）与 cn（简体中文）。
+# 想加别的语言就复制一份改名，缺失的条目会自动回退到插件内置的同名文件。
 language: en
 
 # Whether to activate mod detection
@@ -118,32 +124,30 @@ escalation:
   #   COMMAND - run `command` from console
   #   IGNORE  - only count and log, punish nothing
   #
-  # message placeholders:
-  #   %player% %mod% %count% %step% %steps% %next% %duration% %reason% %source% %action%
-  #   (%mod% = detected mod/channel, %count% = this player's violation number,
-  #    %next% = the violation count of the following rung, %reason% = the mod's
-  #    own configured reason from sign-translation, if any)
-  # Leave `message` out to use the escalation.* text from messages_<lang>.yml.
+  # Without a `message`, a rung uses escalation.warn / escalation.kick / escalation.ban
+  # from your messages_<language>.yml, so it follows the server language automatically.
+  # Add `message` only when you want to override that text for one rung:
+  #
+  #   message placeholders:
+  #     %player% %mod% %count% %step% %steps% %next% %duration% %reason% %source% %action%
+  #     (%mod% = detected mod/channel, %count% = this player's violation number,
+  #      %next% = the violation count of the following rung, %reason% = the mod's
+  #      own configured reason from sign-translation, if any)
   ladder:
     - violations: 1
       action: KICK
-      message: |-
-        &c&lWarning &7(strike %count%)
-        &fYou joined with &c%mod%&f, which is not allowed on this server.
-        &7Remove it before rejoining — joining again with it will get you &c&lpermanently banned&7.
+      # message: |-
+      #   &c&lWarning &7(strike %count%)
+      #   &fYou joined with &c%mod%&f, which is not allowed on this server.
+      #   &7Remove it before rejoining - joining again with it will get you &c&lpermanently banned&7.
     - violations: 2
       action: BAN
       duration: ""
-      message: |-
-        &4&lBanned
-        &fYou joined with &c%mod%&f again after being warned.
-        &7Strike &f%count%&7. Duration: &f%duration%
 
-  # Softer four-rung example — replace the ladder above with this to warn twice first:
+  # Softer four-rung example - replace the ladder above with this to warn twice first:
   #  ladder:
   #    - violations: 1
   #      action: WARN
-  #      message: "&e&lWARNING &r&f%mod% is not allowed here. Remove it — next time you will be kicked."
   #    - violations: 2
   #      action: KICK
   #    - violations: 3

@@ -16,7 +16,7 @@ Many client-only mods (some HUDs, movement cheats, etc.) **never** register a pl
 - Customize messages and behavior via `messages_xx.yml`
 - Hex color support on 1.16+ (e.g. `&#00ffcc`)
 - Main detection aimed at roughly **1.8–1.21.11+**
-- Multi-language (`en` / `cn`, or your own files)
+- Bilingual by default: `en` and `cn` both ship, or add your own files
 - Hot reload with `/modblocker reload`
 - Spigot / Paper / Purpur / Folia / PandaSpigot
 - Optional: sign translation detection, PacketEvents enhancement

@@ -24,7 +24,7 @@
 2. 放入服务器的 `plugins/` 目录
 3. 启动（或重载）服务器，生成配置文件：
    - `plugins/FakeModBlocker/config.yml`
-   - `plugins/FakeModBlocker/messages_en.yml`（及你启用的语言文件）
+   - `plugins/FakeModBlocker/messages_en.yml` 与 `messages_cn.yml`（两份都会自动生成，用 `language:` 选择）
 4. 按需编辑配置
 5. 执行 `/modblocker reload` 立即生效
 

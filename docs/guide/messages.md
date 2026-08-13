@@ -2,13 +2,28 @@
 
 Language files live at `plugins/FakeModBlocker/messages_<language>.yml`.
 
+Two are **bundled and written out on first start**:
+
+| File | `language:` value | Content |
+|------|-------------------|---------|
+| `messages_en.yml` | `en` (default) | English |
+| `messages_cn.yml` | `cn` | 简体中文 |
+
 In `config.yml`:
 
 ```yaml
-language: en   # → messages_en.yml
+language: cn   # → messages_cn.yml
 ```
 
-Copy to `messages_cn.yml` and set `language: cn` for Chinese, or create any other suffix you need.
+`zh`, `zh_CN`, `zh-cn` and `chinese` are accepted as aliases of `cn`.
+
+To add another language, copy either file to `messages_<suffix>.yml` and point `language` at it.
+
+::: tip Your edits survive updates
+The plugin never overwrites a language file that already exists. Any key you delete — or that a
+newer version adds — falls back to the copy bundled inside the jar, so upgrading never leaves
+`Missing message: ...` on screen.
+:::
 
 ## Common sections
 

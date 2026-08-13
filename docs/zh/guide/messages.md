@@ -2,13 +2,27 @@
 
 语言文件位于 `plugins/FakeModBlocker/messages_<language>.yml`。
 
+插件**自带两份，首次启动时自动释放**：
+
+| 文件 | `language:` 取值 | 内容 |
+|------|------------------|------|
+| `messages_en.yml` | `en`（默认） | English |
+| `messages_cn.yml` | `cn` | 简体中文 |
+
 `config.yml` 里：
 
 ```yaml
-language: en   # → messages_en.yml
+language: cn   # → messages_cn.yml
 ```
 
-可复制一份改成 `messages_cn.yml`，再把 `language` 设为 `cn`。
+`zh`、`zh_CN`、`zh-cn`、`chinese` 都会被识别为 `cn`。
+
+想加别的语言，复制其中一份改名为 `messages_<后缀>.yml`，再把 `language` 指过去即可。
+
+::: tip 改动不会被覆盖
+插件不会覆盖已存在的语言文件。你删掉的条目、或新版本新增的条目，都会自动回退到插件内置的同名文件，
+所以升级后不会出现 `Missing message: ...`。
+:::
 
 ## 常用段落
 

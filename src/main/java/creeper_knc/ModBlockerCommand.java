@@ -5,6 +5,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
@@ -265,10 +266,20 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
     }
 
     private String getMsg(String path) {
-        return FakeModBlocker.getInstance().getMessages().getString(path, "&cMissing message: " + path);
+        return getMsg(path, "&cMissing message: " + path);
     }
 
+    /** Goes through ModBlocker so the bundled language file still acts as the defaults layer. */
     private String getMsg(String path, String fallback) {
-        return FakeModBlocker.getInstance().getMessages().getString(path, fallback);
+        ModBlocker modBlocker = FakeModBlocker.getInstance().getModBlocker();
+        if (modBlocker != null) {
+            return modBlocker.getMessage(path, fallback);
+        }
+        FileConfiguration messages = FakeModBlocker.getInstance().getMessages();
+        if (messages == null) {
+            return fallback;
+        }
+        String value = messages.getString(path);
+        return value == null ? fallback : value;
     }
 }

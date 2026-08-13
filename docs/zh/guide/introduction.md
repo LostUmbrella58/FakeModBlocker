@@ -16,7 +16,7 @@ FakeModBlocker **不是**完整反作弊，也**不能**检测所有外挂或模
 - 通过 `messages_xx.yml` 自定义消息与行为
 - 1.16+ 支持 Hex 颜色（如 `&#00ffcc`）
 - 主检测兼容约 **1.8–1.21.11+**
-- 多语言（`en` / `cn`，也可自建）
+- 默认中英双语：自带 `en` 与 `cn` 两份语言文件，也可自建
 - `/modblocker reload` 热重载
 - 支持 Spigot / Paper / Purpur / Folia / PandaSpigot
 - 可选：告示牌翻译检测、PacketEvents 增强

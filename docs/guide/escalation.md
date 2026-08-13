@@ -21,20 +21,26 @@ escalation:
   ladder:
     - violations: 1
       action: KICK
-      message: |-
-        &c&lWarning &7(strike %count%)
-        &fYou joined with &c%mod%&f, which is not allowed on this server.
-        &7Remove it before rejoining — joining again with it will get you &c&lpermanently banned&7.
     - violations: 2
       action: BAN
       duration: ""      # empty / 0 / "permanent" = permanent
-      message: |-
-        &4&lBanned
-        &fYou joined with &c%mod%&f again after being warned.
-        &7Strike &f%count%&7. Duration: &f%duration%
 ```
 
 Then `/modblocker reload`.
+
+That is the shipped default ladder — it only needs `enabled: true`. The texts come from
+`escalation.warn` / `escalation.kick` / `escalation.ban` in your
+[language file](./messages), so they follow `language:` automatically. Add a `message:`
+to a rung only when you want to override it:
+
+```yaml
+    - violations: 1
+      action: KICK
+      message: |-
+        &c&lWarning &7(strike %count%)
+        &fYou joined with &c%mod%&f, which is not allowed on this server.
+        &7Remove it before rejoining - joining again with it means a permanent ban.
+```
 
 ## What it takes over
 

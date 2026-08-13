@@ -5,7 +5,7 @@ Main config: `plugins/FakeModBlocker/config.yml`
 ## Basics
 
 ```yaml
-language: en          # locale file suffix → messages_en.yml
+language: en          # locale file suffix → messages_en.yml ("en" and "cn" ship by default)
 enable: true          # master switch
 logger: true          # print player channels / mod-related messages (great for collecting keywords)
 useCustomKickCommand: true
@@ -16,7 +16,7 @@ notificationPermission: fakemodblocker.notify
 
 | Option | Description |
 |--------|-------------|
-| `language` | Loads `messages_<language>.yml` |
+| `language` | Loads `messages_<language>.yml`. `en` and `cn` are bundled; see [Messages & Locales](./messages) |
 | `enable` | `false` disables mod detection |
 | `logger` | Verbose console channel lists; useful for debugging, optional in production |
 | `useCustomKickCommand` | Use a custom kick command instead of the default kick |
