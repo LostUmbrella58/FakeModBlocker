@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 public class ModBlockerCommand implements CommandExecutor, TabCompleter {
 
@@ -25,6 +26,24 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
             FakeModBlocker.getInstance().reloadAll();
             MessageBridge.send(sender, getMsg("command.reload-success"));
+            return true;
+        }
+
+        if (args.length >= 1 && args[0].equalsIgnoreCase("violations")) {
+            if (args.length != 2) {
+                MessageBridge.send(sender, getMsg("command.usage"));
+                return true;
+            }
+            showViolations(sender, args[1]);
+            return true;
+        }
+
+        if (args.length >= 1 && args[0].equalsIgnoreCase("clear")) {
+            if (args.length < 2 || args.length > 3) {
+                MessageBridge.send(sender, getMsg("command.usage"));
+                return true;
+            }
+            clearViolations(sender, args[1], args.length == 3 ? args[2] : null);
             return true;
         }
 
@@ -83,6 +102,81 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private void showViolations(CommandSender sender, String name) {
+        ViolationManager manager = violationManager();
+        if (manager == null) {
+            MessageBridge.send(sender, getMsg("command.escalation-unavailable",
+                    "&cThe escalation system is not initialized."));
+            return;
+        }
+
+        UUID uuid = resolveUuid(manager, name);
+        List<ViolationManager.CounterView> counters = uuid == null ? List.of() : manager.view(uuid);
+
+        MessageBridge.send(sender, getMsg("command.violations-header", "&bViolation record for &f%player%&b:")
+                .replace("%player%", name));
+
+        if (counters.isEmpty()) {
+            MessageBridge.send(sender, getMsg("command.violations-none", "&aNo violations recorded for &f%player%&a.")
+                    .replace("%player%", name));
+        } else {
+            String entry = getMsg("command.violations-entry", "&7- &f%mod%&7: &c%count% &7(last: &f%time%&7)");
+            String expiredSuffix = getMsg("command.violations-expired", " &8(expired)");
+            for (ViolationManager.CounterView counter : counters) {
+                String label = ViolationManager.GLOBAL_KEY.equals(counter.getKey())
+                        ? getMsg("command.violations-global-label", "any mod")
+                        : counter.getKey();
+                MessageBridge.send(sender, entry
+                        .replace("%mod%", label)
+                        .replace("%count%", String.valueOf(counter.getCount()))
+                        .replace("%time%", counter.getLastFormatted())
+                        + (counter.isExpired() ? expiredSuffix : ""));
+            }
+        }
+
+        if (!manager.isEnabled()) {
+            MessageBridge.send(sender, getMsg("command.violations-disabled",
+                    "&7Note: escalation is currently disabled in config.yml."));
+        }
+    }
+
+    private void clearViolations(CommandSender sender, String name, String mod) {
+        ViolationManager manager = violationManager();
+        if (manager == null) {
+            MessageBridge.send(sender, getMsg("command.escalation-unavailable",
+                    "&cThe escalation system is not initialized."));
+            return;
+        }
+
+        UUID uuid = resolveUuid(manager, name);
+        int removed = uuid == null ? 0 : manager.clear(uuid, mod);
+
+        if (removed == 0) {
+            MessageBridge.send(sender, getMsg("command.clear-none", "&7No violation records found for &f%player%&7.")
+                    .replace("%player%", name));
+            return;
+        }
+
+        MessageBridge.send(sender, getMsg("command.clear-success",
+                        "&aCleared &f%count%&a violation record(s) for &f%player%&a.")
+                .replace("%player%", name)
+                .replace("%count%", String.valueOf(removed)));
+    }
+
+    /** Online player first, then a stored record, so offline players can be inspected and cleared. */
+    private UUID resolveUuid(ViolationManager manager, String name) {
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) {
+            return online.getUniqueId();
+        }
+        return manager.findByName(name);
+    }
+
+    private ViolationManager violationManager() {
+        ModBlocker modBlocker = FakeModBlocker.getInstance().getModBlocker();
+        return modBlocker == null ? null : modBlocker.getViolationManager();
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (!sender.hasPermission("fakemodblocker.admin")) {
@@ -90,18 +184,65 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 1) {
-            return Arrays.asList("reload", "check");
+            return filter(Arrays.asList("reload", "check", "violations", "clear"), args[0]);
         }
 
-        if (args.length == 2 && args[0].equalsIgnoreCase("check")) {
-            List<String> players = new ArrayList<>();
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                players.add(p.getName());
+        if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("check")) {
+                return filter(onlineNames(), args[1]);
             }
-            return players;
+            if (args[0].equalsIgnoreCase("violations") || args[0].equalsIgnoreCase("clear")) {
+                List<String> names = onlineNames();
+                ViolationManager manager = violationManager();
+                if (manager != null) {
+                    for (String stored : manager.knownNames()) {
+                        if (!names.contains(stored)) {
+                            names.add(stored);
+                        }
+                    }
+                }
+                return filter(names, args[1]);
+            }
+        }
+
+        if (args.length == 3 && args[0].equalsIgnoreCase("clear")) {
+            ViolationManager manager = violationManager();
+            if (manager == null) {
+                return Collections.emptyList();
+            }
+            UUID uuid = resolveUuid(manager, args[1]);
+            List<String> keys = new ArrayList<>();
+            if (uuid != null) {
+                for (ViolationManager.CounterView counter : manager.view(uuid)) {
+                    keys.add(counter.getKey());
+                }
+            }
+            return filter(keys, args[2]);
         }
 
         return Collections.emptyList();
+    }
+
+    private List<String> onlineNames() {
+        List<String> players = new ArrayList<>();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            players.add(p.getName());
+        }
+        return players;
+    }
+
+    private List<String> filter(List<String> options, String prefix) {
+        if (prefix == null || prefix.isEmpty()) {
+            return options;
+        }
+        List<String> out = new ArrayList<>();
+        String lower = prefix.toLowerCase();
+        for (String option : options) {
+            if (option.toLowerCase().startsWith(lower)) {
+                out.add(option);
+            }
+        }
+        return out;
     }
 
     private String describeSkip(ModBlocker.SignDetectionState state) {

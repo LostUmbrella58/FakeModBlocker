@@ -62,6 +62,97 @@ forbiddenList:
 notifyStaff: true
 notificationPermission: fakemodblocker.notify
 
+# =============================================================================
+# escalation — optional warn -> kick -> ban "strike" system
+# =============================================================================
+# OFF by default. While `enabled: false` the plugin behaves exactly as before:
+# every detection immediately applies its own fixed punishment.
+#
+# When enabled, a detection no longer punishes directly. Instead the plugin
+# counts violations per player and applies the matching rung of `ladder`:
+#   1st time joining with Freecam  -> warned + kicked
+#   2nd time joining with Freecam  -> permanently banned
+#
+# Counts are stored in plugins/FakeModBlocker/violations.yml and survive
+# restarts. Inspect and reset them with:
+#   /modblocker violations <player>
+#   /modblocker clear <player> [mod]
+#
+# What escalation takes over:
+#   * every forbiddenList (plugin channel) detection
+#   * sign-translation mods whose action is KICK or BAN
+# What it never touches:
+#   * sign-translation mods with action NOTICE or IGNORE — those stay
+#     observational, so turning this on cannot turn a "watch only" mod into a ban
+#   * a mod with `punishment.escalation: false`, which keeps its fixed action
+# =============================================================================
+escalation:
+  enabled: false
+
+  # true  -> each mod has its own strike counter (Freecam strikes are separate from Xaero strikes)
+  # false -> one shared counter per player, no matter which mod was found
+  per-mod: true
+
+  # Count at most one strike per mod per session. Keep this true: a single join is
+  # often seen by several detectors (packet channel + join scan + sign check), and
+  # without it one join could jump several rungs at once.
+  count-once-per-session: true
+
+  # Forget a counter if the player has not triggered it for this long.
+  # Forms: 30d, 12h, 90m, 45s, 2w, or compounds like 1d12h. Use 0 or "never" to keep forever.
+  reset-after: "30d"
+
+  # Hand bans to another plugin (LiteBans, AdvancedBan, CMI, ...) instead of the
+  # vanilla ban list. The external plugin is then responsible for kicking the player.
+  use-custom-ban-command: false
+  ban-command: "ban %player% %reason%"
+  temp-ban-command: "tempban %player% %duration% %reason%"
+
+  # The ladder. `violations` is the strike count this rung starts at; the last rung
+  # keeps applying to every further violation.
+  #
+  # action:
+  #   WARN    - send the message, player stays online
+  #   KICK    - send the message as the kick reason (honours useCustomKickCommand)
+  #   BAN     - ban for `duration` (empty / 0 / "permanent" = permanent), then kick
+  #   COMMAND - run `command` from console
+  #   IGNORE  - only count and log, punish nothing
+  #
+  # message placeholders:
+  #   %player% %mod% %count% %step% %steps% %next% %duration% %reason% %source% %action%
+  #   (%mod% = detected mod/channel, %count% = this player's violation number,
+  #    %next% = the violation count of the following rung, %reason% = the mod's
+  #    own configured reason from sign-translation, if any)
+  # Leave `message` out to use the escalation.* text from messages_<lang>.yml.
+  ladder:
+    - violations: 1
+      action: KICK
+      message: |-
+        &c&lWarning &7(strike %count%)
+        &fYou joined with &c%mod%&f, which is not allowed on this server.
+        &7Remove it before rejoining — joining again with it will get you &c&lpermanently banned&7.
+    - violations: 2
+      action: BAN
+      duration: ""
+      message: |-
+        &4&lBanned
+        &fYou joined with &c%mod%&f again after being warned.
+        &7Strike &f%count%&7. Duration: &f%duration%
+
+  # Softer four-rung example — replace the ladder above with this to warn twice first:
+  #  ladder:
+  #    - violations: 1
+  #      action: WARN
+  #      message: "&e&lWARNING &r&f%mod% is not allowed here. Remove it — next time you will be kicked."
+  #    - violations: 2
+  #      action: KICK
+  #    - violations: 3
+  #      action: BAN
+  #      duration: "7d"
+  #    - violations: 4
+  #      action: BAN
+  #      duration: ""
+
 # Extra optional detections
 # WARNING:
 # This sign translation detection depends on sign editor API availability.
@@ -106,6 +197,9 @@ extra-detections:
         punishment:
           action: "KICK"
           reason: "&c&lWarning: Please do not use &b&lFreecam &c&lon this server."
+          # Optional, only matters when `escalation.enabled` is true.
+          # false = this mod ignores the ladder and always applies the action above.
+          # escalation: true
 
       AccurateBlockPlacement:
         detect:

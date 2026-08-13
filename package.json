@@ -1,6 +1,6 @@
 {
   "name": "fakemodblocker",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "description": "Docs site for FakeModBlocker — lightweight Minecraft mod detection plugin",
   "type": "module",

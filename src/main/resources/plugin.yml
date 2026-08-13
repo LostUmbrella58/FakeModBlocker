@@ -1,5 +1,5 @@
 name: FakeModBlocker
-version: '1.7.0'
+version: '1.8.0'
 main: creeper_knc.FakeModBlocker
 api-version: '1.21'
 prefix: FakeModBlocker
@@ -11,7 +11,7 @@ folia-supported: true
 commands:
   modblocker:
     description: ModBlocker admin commands
-    usage: /modblocker <reload|check <player>>
+    usage: /modblocker <reload|check <player>|violations <player>|clear <player> [mod]>
     permission: fakemodblocker.admin
 permissions:
   fakemodblocker.admin:

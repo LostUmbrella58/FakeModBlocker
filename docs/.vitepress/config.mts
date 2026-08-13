@@ -34,6 +34,7 @@ function sidebarEn() {
         { text: 'Configuration', link: '/guide/configuration' },
         { text: 'Channel Detection', link: '/guide/channel-detection' },
         { text: 'Sign Translation Detection', link: '/guide/sign-detection' },
+        { text: 'Escalation (Warn → Kick → Ban)', link: '/guide/escalation' },
         { text: 'Messages & Locales', link: '/guide/messages' }
       ]
     },
@@ -63,6 +64,7 @@ function sidebarZh() {
         { text: '配置文件', link: '/zh/guide/configuration' },
         { text: '频道检测', link: '/zh/guide/channel-detection' },
         { text: '告示牌翻译检测', link: '/zh/guide/sign-detection' },
+        { text: '阶梯处罚（警告/踢出/封禁）', link: '/zh/guide/escalation' },
         { text: '消息与多语言', link: '/zh/guide/messages' }
       ]
     },

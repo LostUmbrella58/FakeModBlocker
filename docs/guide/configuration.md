@@ -72,4 +72,28 @@ extra-detections:
           reason: "&c..."
 ```
 
+## escalation
+
+Optional warn → kick → ban strike system, **off by default**.
+
+```yaml
+escalation:
+  enabled: false
+  per-mod: true
+  count-once-per-session: true
+  reset-after: "30d"
+  ladder:
+    - violations: 1
+      action: KICK      # WARN | KICK | BAN | COMMAND | IGNORE
+      message: "&c&lWarning &7(strike %count%) &fRemove %mod% — next time is a ban."
+    - violations: 2
+      action: BAN
+      duration: ""      # empty = permanent
+```
+
+Counts are stored per player in `violations.yml` and managed with
+`/modblocker violations <player>` and `/modblocker clear <player> [mod]`.
+
+Full reference: [Escalation](./escalation)
+
 See also: [Channel Detection](./channel-detection), [Sign Translation Detection](./sign-detection)

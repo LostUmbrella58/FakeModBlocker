@@ -72,4 +72,28 @@ extra-detections:
           reason: "&c..."
 ```
 
+## escalation
+
+可选的"警告 → 踢出 → 封禁"阶梯处罚系统，**默认关闭**。
+
+```yaml
+escalation:
+  enabled: false
+  per-mod: true
+  count-once-per-session: true
+  reset-after: "30d"
+  ladder:
+    - violations: 1
+      action: KICK      # WARN | KICK | BAN | COMMAND | IGNORE
+      message: "&c&l警告 &7(第 %count% 次) &f请卸载 %mod%，下次将被封禁。"
+    - violations: 2
+      action: BAN
+      duration: ""      # 留空为永久
+```
+
+计数按玩家保存在 `violations.yml`，用 `/modblocker violations <玩家>` 和
+`/modblocker clear <玩家> [模组]` 管理。
+
+完整说明：[阶梯处罚](./escalation)
+
 详见：[频道检测](./channel-detection)、[告示牌翻译检测](./sign-detection)

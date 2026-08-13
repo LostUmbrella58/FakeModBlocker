@@ -18,7 +18,8 @@ It also supports an **optional advanced sign translation detection module** on s
 ✅ Multi-language support (`en`, `cn`, and your own language)  
 ✅ Reload support: `/modblocker reload`  
 ✅ Spigot / Paper / Purpur / Folia / PandaSpigot support  
-✅ Optional advanced **sign translation key detection** on supported server APIs
+✅ Optional advanced **sign translation key detection** on supported server APIs  
+✅ Optional **escalation system**: warn on the first offence, kick on the next, ban after that
 
 ---
 

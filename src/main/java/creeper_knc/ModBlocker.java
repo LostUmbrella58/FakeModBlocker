@@ -41,6 +41,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
     private Object signDetectionBridge;
     private Object packetEventsBridge;
+    private ViolationManager violationManager;
 
     /** Why the API check failed, or null when the API is usable. */
     private String signApiUnsupportedReason;
@@ -55,6 +56,8 @@ public class ModBlocker implements Listener, PluginMessageListener {
         loadSignDetectionConfigs();
         this.signDetectionApiSupported = detectSignDetectionApiSupport();
 
+        this.violationManager = new ViolationManager(FakeModBlocker.getInstance(), this);
+
         syncSignDetectionBridge();
         syncPacketEventsBridge();
 
@@ -67,6 +70,10 @@ public class ModBlocker implements Listener, PluginMessageListener {
     public void reloadModBlockerConfig() {
         this.config = FakeModBlocker.getInstance().getConfig();
         loadSignDetectionConfigs();
+
+        if (violationManager != null) {
+            violationManager.reload();
+        }
 
         // Let a reload recover from a failed startup and follow enable/disable
         // toggles, instead of forcing a full server restart.
@@ -94,7 +101,15 @@ public class ModBlocker implements Listener, PluginMessageListener {
     public void shutdown() {
         disposeSignDetectionBridge();
         disposePacketEventsBridge();
+        if (violationManager != null) {
+            // Async tasks are rejected once the plugin is disabling, so write on this thread.
+            violationManager.flush();
+        }
         handledChannelKick.clear();
+    }
+
+    public ViolationManager getViolationManager() {
+        return violationManager;
     }
 
     public boolean shouldSkipSignDetectionForBedrock(Player player) {
@@ -259,13 +274,27 @@ public class ModBlocker implements Listener, PluginMessageListener {
     }
 
     private void handleDetectedMods(Player player, List<String> mods) {
-        if (!handledChannelKick.add(player.getUniqueId())) {
+        boolean escalating = violationManager != null && violationManager.isEnabled();
+
+        // The fixed punishment fires once per session; escalation does its own per-mod
+        // session bookkeeping, so it must not be swallowed by this guard.
+        if (!escalating && !handledChannelKick.add(player.getUniqueId())) {
             return;
         }
 
         logToConsole(getMessage("log.detected-mods")
                 .replace("%player%", player.getName())
                 .replace("%mods%", String.join(", ", mods)));
+
+        if (escalating) {
+            if (violationManager.handle(player, mods, ViolationManager.SOURCE_CHANNEL, null)) {
+                return;
+            }
+            // Ladder unusable: fall back to the fixed punishment, still only once per session.
+            if (!handledChannelKick.add(player.getUniqueId())) {
+                return;
+            }
+        }
 
         StringBuilder message = new StringBuilder();
         for (String mod : mods) {
@@ -282,22 +311,26 @@ public class ModBlocker implements Listener, PluginMessageListener {
             message.append(msg.replace("%player%", player.getName())).append("\n");
         }
 
-        String finalMsg = message.toString().trim();
-
-        if (config.getBoolean("useCustomKickCommand")) {
-            String cmd = config.getString("command", "")
-                    .replace("%player%", player.getName())
-                    .replace("%kickMessage%", MessageBridge.toLegacySection(finalMsg));
-
-            FakeModBlocker.getInstance().getScheduler().runGlobal(() ->
-                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
-            );
-        } else {
-            kickPlayerCompat(player, finalMsg);
-        }
+        kickWithReason(player, message.toString().trim());
     }
 
     void handleSignDetection(Player player, DetectionModConfig detectConfig) {
+        String reason = detectConfig.getReason() != null
+                ? detectConfig.getReason()
+                : "&cDetected forbidden mod: " + detectConfig.getName();
+
+        // NOTICE and IGNORE stay observational: turning escalation on must never
+        // upgrade a mod the admin only wanted to watch into a kick or a ban.
+        if (detectConfig.getAction() == DetectionAction.KICK || detectConfig.getAction() == DetectionAction.BAN) {
+            if (violationManager != null
+                    && violationManager.isEnabled()
+                    && detectConfig.isEscalationEnabled()
+                    && violationManager.handle(player, List.of(detectConfig.getName()),
+                            ViolationManager.SOURCE_SIGN, reason)) {
+                return;
+            }
+        }
+
         switch (detectConfig.getAction()) {
             case NOTICE:
                 if (config.getBoolean("logger")) {
@@ -307,34 +340,16 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 break;
 
             case KICK:
-                String kickReason = detectConfig.getReason() != null
-                        ? detectConfig.getReason()
-                        : "&cDetected forbidden mod: " + detectConfig.getName();
-
                 if (config.getBoolean("logger")) {
                     logToConsole("Sign detection found " + player.getName() + " using " + detectConfig.getName() + ", kicking player.");
                 }
 
                 notifyStaff("Player " + player.getName() + " was kicked for using " + detectConfig.getName());
 
-                if (config.getBoolean("useCustomKickCommand")) {
-                    String cmd = config.getString("command", "")
-                            .replace("%player%", player.getName())
-                            .replace("%kickMessage%", MessageBridge.toLegacySection(kickReason));
-
-                    FakeModBlocker.getInstance().getScheduler().runGlobal(() ->
-                            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
-                    );
-                } else {
-                    kickPlayerCompat(player, kickReason);
-                }
+                kickWithReason(player, reason);
                 break;
 
             case BAN:
-                String banReason = detectConfig.getReason() != null
-                        ? detectConfig.getReason()
-                        : "&cDetected forbidden mod: " + detectConfig.getName();
-
                 Date expires = parseDuration(detectConfig.getDuration());
 
                 if (config.getBoolean("logger")) {
@@ -343,8 +358,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
                 notifyStaff("Player " + player.getName() + " was banned for using " + detectConfig.getName());
 
-                banPlayerCompat(player, banReason, expires);
-                kickPlayerCompat(player, banReason);
+                banAndKick(player, reason, expires, "FakeModBlocker-SIGN");
                 break;
 
             case IGNORE:
@@ -355,7 +369,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
         }
     }
 
-    private void notifyStaff(String message) {
+    void notifyStaff(String message) {
         if (!config.getBoolean("notifyStaff", true)) {
             return;
         }
@@ -572,6 +586,9 @@ public class ModBlocker implements Listener, PluginMessageListener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
         handledChannelKick.remove(uuid);
+        if (violationManager != null) {
+            violationManager.onPlayerQuit(uuid);
+        }
         if (packetEventsBridge != null) {
             try {
                 Method m = packetEventsBridge.getClass().getMethod("onPlayerQuit", UUID.class);
@@ -663,7 +680,28 @@ public class ModBlocker implements Listener, PluginMessageListener {
         MessageBridge.kick(player, reason);
     }
 
-    private void banPlayerCompat(Player player, String reason, Date expires) {
+    /** Single kick path for every detection: honours useCustomKickCommand. */
+    void kickWithReason(Player player, String reason) {
+        if (config.getBoolean("useCustomKickCommand")) {
+            String cmd = config.getString("command", "")
+                    .replace("%player%", player.getName())
+                    .replace("%kickMessage%", MessageBridge.toLegacySection(reason));
+
+            FakeModBlocker.getInstance().getScheduler().runGlobal(() ->
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
+            );
+        } else {
+            kickPlayerCompat(player, reason);
+        }
+    }
+
+    /** Records the ban and removes the player. {@code expires} of null means permanent. */
+    void banAndKick(Player player, String reason, Date expires, String source) {
+        banPlayerCompat(player, reason, expires, source);
+        kickPlayerCompat(player, reason);
+    }
+
+    private void banPlayerCompat(Player player, String reason, Date expires, String source) {
         String legacyReason = MessageBridge.toLegacySection(reason);
 
         try {
@@ -689,7 +727,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
             }
 
             if (addBan != null) {
-                addBan.invoke(banList, profile, legacyReason, expires, "FakeModBlocker-SIGN");
+                addBan.invoke(banList, profile, legacyReason, expires, source);
                 return;
             }
         } catch (Throwable ignored) {
@@ -697,30 +735,15 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
         try {
             Bukkit.getBanList(BanList.Type.NAME)
-                    .addBan(player.getName(), legacyReason, expires, "FakeModBlocker-SIGN");
+                    .addBan(player.getName(), legacyReason, expires, source);
         } catch (Throwable ignored) {
         }
     }
 
+    /** Null means permanent. Accepts 30d / 12h / 90m / 45s / 2w and compounds like 1d12h. */
     private Date parseDuration(String duration) {
-        if (duration == null || duration.isEmpty()) {
-            return null;
-        }
-
-        try {
-            long amount = Long.parseLong(duration.substring(0, duration.length() - 1));
-            char unit = Character.toLowerCase(duration.charAt(duration.length() - 1));
-            long now = System.currentTimeMillis();
-
-            return switch (unit) {
-                case 'd' -> new Date(now + amount * 24L * 60L * 60L * 1000L);
-                case 'h' -> new Date(now + amount * 60L * 60L * 1000L);
-                case 'm' -> new Date(now + amount * 60L * 1000L);
-                default -> null;
-            };
-        } catch (Exception ignored) {
-            return null;
-        }
+        long millis = ViolationManager.parseMillis(duration);
+        return millis <= 0L ? null : new Date(System.currentTimeMillis() + millis);
     }
 
     private void loadSignDetectionConfigs() {
@@ -746,15 +769,18 @@ public class ModBlocker implements Listener, PluginMessageListener {
             String actionRaw;
             String reason;
             String duration;
+            boolean escalation;
 
             if (detectSec != null || punishmentSec != null) {
                 actionRaw = punishmentSec != null ? punishmentSec.getString("action", "NOTICE") : "NOTICE";
                 reason = punishmentSec != null ? punishmentSec.getString("reason") : null;
                 duration = punishmentSec != null ? punishmentSec.getString("duration") : null;
+                escalation = punishmentSec == null || punishmentSec.getBoolean("escalation", true);
             } else {
                 actionRaw = section.getString("action", "NOTICE");
                 reason = section.getString("reason");
                 duration = section.getString("duration");
+                escalation = section.getBoolean("escalation", true);
             }
 
             if (keys.isEmpty()) {
@@ -771,7 +797,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
                 action = DetectionAction.NOTICE;
             }
 
-            signDetectConfigs.add(new DetectionModConfig(modName, keys, action, reason, duration));
+            signDetectConfigs.add(new DetectionModConfig(modName, keys, action, reason, duration, escalation));
 
             if (config.getBoolean("logger")) {
                 logToConsole("Loaded sign detection item: " + modName + " | keys=" + keys + " | action=" + action);
@@ -880,13 +906,25 @@ public class ModBlocker implements Listener, PluginMessageListener {
         private final DetectionAction action;
         private final String reason;
         private final String duration;
+        private final boolean escalation;
 
         public DetectionModConfig(String name, List<String> keys, DetectionAction action, String reason, String duration) {
+            this(name, keys, action, reason, duration, true);
+        }
+
+        public DetectionModConfig(String name, List<String> keys, DetectionAction action, String reason,
+                                  String duration, boolean escalation) {
             this.name = name;
             this.keys = keys == null ? List.of() : List.copyOf(keys);
             this.action = action;
             this.reason = reason;
             this.duration = duration;
+            this.escalation = escalation;
+        }
+
+        /** False when this mod opts out of the ladder and keeps its fixed action. */
+        public boolean isEscalationEnabled() {
+            return escalation;
         }
 
         public String getName() {

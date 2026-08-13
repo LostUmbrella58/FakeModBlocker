@@ -23,6 +23,8 @@ features:
     details: Identify loaders and mods by Plugin Message Channels. Extend freely with forbiddenList.
   - title: Optional advanced detection
     details: Sign translation keys on Paper 1.21.5+. PacketEvents for earlier channel registration interception.
+  - title: Optional escalation ladder
+    details: Count violations per player and climb warn → kick → ban. Persistent, expiring, and fully configurable.
   - title: Fully customizable messages
     details: Multi-language messages_xx.yml, hex colors, custom kick commands, and staff notifications.
 ---

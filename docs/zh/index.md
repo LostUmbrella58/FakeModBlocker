@@ -23,6 +23,8 @@ features:
     details: 按客户端注册的 Plugin Message Channel 识别加载器与模组，可自由扩展 forbiddenList。
   - title: 可选增强检测
     details: Paper 1.21.5+ 可用告示牌翻译键检测；安装 PacketEvents 可更早拦截频道注册。
+  - title: 可选阶梯处罚
+    details: 按玩家累计违规次数，逐级执行警告 → 踢出 → 封禁；记录持久化、可过期、完全可配。
   - title: 消息完全可配
     details: 多语言 messages_xx.yml、Hex 颜色、自定义踢出命令与员工通知。
 ---

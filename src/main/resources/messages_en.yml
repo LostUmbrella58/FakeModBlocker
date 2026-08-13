@@ -24,10 +24,29 @@ kick:
     voxelmap: "&cVoxelMap detected! Mapping mods like VoxelMap are not permitted."
     replay: "&cReplay Mod detected! Please disable Replay Mod before joining."
 
+# Escalation ("strike") system. Only used when escalation.enabled is true in config.yml.
+# A ladder rung with its own `message:` overrides the matching entry here.
+# Placeholders: %player% %mod% %count% %step% %steps% %next% %duration% %reason% %source% %action%
+escalation:
+  warn: "&e&lWARNING &r&fYou are using &c%mod%&f, which is not allowed here. &7(strike %count%) &fRemove it before you are removed from the server."
+  kick: "&c&lWarning: &f%mod% &cis not allowed on this server.\n&7This is strike &f%count%&7. Joining again with it will be punished harder."
+  ban: "&4&lBanned: &fyou rejoined with &c%mod%&f after being warned.\n&7Strikes: &f%count% &7| Duration: &f%duration%"
+  # Sent to staff with the notify permission (respects notifyStaff in config.yml).
+  notify: "&e%player% &7hit escalation step &f%step%&7/&f%steps% &7(&f%action%&7) for &f%mod%&7, strike &f%count%"
+  # Console line for every escalated detection.
+  log: "%player% reached violation %count% for %mod% (%source%) -> step %step%/%steps%: %action%"
+  duration-permanent: "permanent"
+  next-none: "-"
+  action-warn: "warn"
+  action-kick: "kick"
+  action-ban: "ban"
+  action-command: "command"
+  action-ignore: "ignore"
+
 command:
   no-permission: "&cYou do not have permission to use this command."
   reload-success: "&aModBlocker configuration and messages reloaded successfully."
-  usage: "&eUsage: /modblocker reload or /modblocker check <player>"
+  usage: "&eUsage: /modblocker <reload | check <player> | violations <player> | clear <player> [mod]>"
   player-not-found: "&cPlayer %player% is not online or does not exist."
   check-header: "&bChecking MOD plugin channels for &f%player%&b:"
   check-channels: "&7Registered channels:"
@@ -43,3 +62,12 @@ command:
   sign-check-reason-bridge: "the detection listener failed to register - see console"
   sign-check-reason-failed: "the check could not be started - see console"
   sign-check-reason-unavailable: "plugin is not initialized"
+  violations-header: "&bViolation record for &f%player%&b:"
+  violations-entry: "&7- &f%mod%&7: &c%count% &7(last: &f%time%&7)"
+  violations-expired: " &8(expired)"
+  violations-global-label: "any mod"
+  violations-none: "&aNo violations recorded for &f%player%&a."
+  violations-disabled: "&7Note: escalation is currently disabled in config.yml."
+  clear-success: "&aCleared &f%count%&a violation record(s) for &f%player%&a."
+  clear-none: "&7No violation records found for &f%player%&7."
+  escalation-unavailable: "&cThe escalation system is not initialized."

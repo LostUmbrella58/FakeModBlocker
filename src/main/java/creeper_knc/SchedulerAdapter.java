@@ -54,6 +54,19 @@ public class SchedulerAdapter {
         }
     }
 
+    /** Off-thread work (file writes). Runs inline if the server refuses to schedule, e.g. while disabling. */
+    public void runAsync(Runnable task) {
+        try {
+            if (isFolia()) {
+                Bukkit.getAsyncScheduler().runNow(plugin, ignored -> task.run());
+            } else {
+                Bukkit.getScheduler().runTaskAsynchronously(plugin, task);
+            }
+        } catch (Throwable t) {
+            task.run();
+        }
+    }
+
     public static boolean isFolia() {
         return REGIONIZED;
     }

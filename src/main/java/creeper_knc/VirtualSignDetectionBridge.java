@@ -66,15 +66,18 @@ public class VirtualSignDetectionBridge implements Listener {
             String actionRaw;
             String reason;
             String duration;
+            boolean escalation;
 
             if (detectSec != null || punishmentSec != null) {
                 actionRaw = punishmentSec != null ? punishmentSec.getString("action", "NOTICE") : "NOTICE";
                 reason = punishmentSec != null ? punishmentSec.getString("reason") : null;
                 duration = punishmentSec != null ? punishmentSec.getString("duration") : null;
+                escalation = punishmentSec == null || punishmentSec.getBoolean("escalation", true);
             } else {
                 actionRaw = section.getString("action", "NOTICE");
                 reason = section.getString("reason");
                 duration = section.getString("duration");
+                escalation = section.getBoolean("escalation", true);
             }
 
             if (keys.isEmpty()) {
@@ -88,7 +91,8 @@ public class VirtualSignDetectionBridge implements Listener {
                 action = ModBlocker.DetectionAction.NOTICE;
             }
 
-            ModBlocker.DetectionModConfig mod = new ModBlocker.DetectionModConfig(modName, keys, action, reason, duration);
+            ModBlocker.DetectionModConfig mod =
+                    new ModBlocker.DetectionModConfig(modName, keys, action, reason, duration, escalation);
             for (String k : keys) {
                 lineEntries.add(new LineEntry(mod, k));
             }
