@@ -41,6 +41,8 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
     private Object signDetectionBridge;
     private Object packetEventsBridge;
+    /** Optional: reports dialogs / resource pack prompts so sign detection can wait them out. */
+    private Object screenTrackerBridge;
     private ViolationManager violationManager;
 
     /** Why the API check failed, or null when the API is usable. */
@@ -60,6 +62,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
 
         syncSignDetectionBridge();
         syncPacketEventsBridge();
+        syncScreenTrackerBridge();
 
         if (config.getBoolean("logger")) {
             logToConsole("Sign translation detection: " + describeSignDetectionState());
@@ -81,6 +84,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
         signApiWarned = false;
         syncSignDetectionBridge();
         syncPacketEventsBridge();
+        syncScreenTrackerBridge();
 
         if (signDetectionBridge != null) {
             try {
@@ -101,6 +105,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
     public void shutdown() {
         disposeSignDetectionBridge();
         disposePacketEventsBridge();
+        disposeScreenTrackerBridge();
         if (violationManager != null) {
             // Async tasks are rejected once the plugin is disabling, so write on this thread.
             violationManager.flush();
@@ -508,6 +513,53 @@ public class ModBlocker implements Listener, PluginMessageListener {
         tryCreateAndRegisterPacketEventsBridge();
     }
 
+    /**
+     * The screen tracker rides along with sign detection: it exists purely so the virtual sign does
+     * not overwrite a dialog or resource pack prompt. No PacketEvents, no tracker - the check then
+     * only avoids Bukkit containers, which still works, just with less awareness.
+     */
+    private void syncScreenTrackerBridge() {
+        boolean wanted = config.getBoolean("extra-detections.sign-translation.enabled", false)
+                && config.getBoolean("extra-detections.sign-translation.avoid-open-screens", true);
+
+        if (!wanted) {
+            if (screenTrackerBridge != null) {
+                disposeScreenTrackerBridge();
+            }
+            return;
+        }
+        if (screenTrackerBridge != null || !detectPacketEventsSupport()) {
+            return;
+        }
+
+        try {
+            Class<?> bridgeClass = Class.forName("creeper_knc.ScreenTrackerBridge");
+            Constructor<?> constructor = bridgeClass.getConstructor(FakeModBlocker.class, ModBlocker.class);
+            Object bridge = constructor.newInstance(FakeModBlocker.getInstance(), this);
+            bridgeClass.getMethod("init").invoke(bridge);
+            this.screenTrackerBridge = bridge;
+        } catch (Throwable t) {
+            // Purely an enhancement, so a failure here must not take sign detection down with it.
+            this.screenTrackerBridge = null;
+            if (config.getBoolean("logger")) {
+                logToConsole("Screen tracker unavailable (" + unwrap(t).getMessage()
+                        + "). Sign detection will only avoid Bukkit containers.");
+            }
+        }
+    }
+
+    private void disposeScreenTrackerBridge() {
+        Object bridge = this.screenTrackerBridge;
+        this.screenTrackerBridge = null;
+        if (bridge == null) {
+            return;
+        }
+        try {
+            bridge.getClass().getMethod("shutdown").invoke(bridge);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void disposePacketEventsBridge() {
         Object bridge = this.packetEventsBridge;
         this.packetEventsBridge = null;
@@ -596,6 +648,15 @@ public class ModBlocker implements Listener, PluginMessageListener {
             } catch (Throwable ignored) {
             }
         }
+        // The sign bridge keeps a pending-check entry per player; drop it so a leaver leaves nothing.
+        if (signDetectionBridge != null) {
+            try {
+                Method m = signDetectionBridge.getClass().getMethod("onPlayerQuit", UUID.class);
+                m.invoke(signDetectionBridge, uuid);
+            } catch (Throwable ignored) {
+            }
+        }
+        ScreenGate.forget(uuid);
     }
 
     /** Brings the sign bridge in line with the current config: create, keep, or tear down. */

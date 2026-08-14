@@ -63,6 +63,10 @@ extra-detections:
   sign-translation:
     enabled: true
     skip-bedrock-via-floodgate: true
+    avoid-open-screens: true      # 有界面占屏时等待，而不是顶掉它
+    max-attempts: 4               # 客户端一直不回传时最多重开几轮
+    evade-timeout-seconds: 300    # 挂着界面超过这么久上报一次
+    evade-action: NOTICE          # NOTICE | KICK
     mods:
       Freecam:
         detect:

@@ -44,6 +44,10 @@ escalation:
   action-command: "command"
   action-ignore: "ignore"
 
+# Virtual sign check. Only used when extra-detections.sign-translation.evade-action is KICK.
+sign:
+  evade-kick: "&c&lThe mod check could not be completed&r\n&7Close any open screen (menu, dialog, resource pack prompt) and rejoin."
+
 command:
   no-permission: "&cYou do not have permission to use this command."
   reload-success: "&aModBlocker configuration and messages reloaded successfully."

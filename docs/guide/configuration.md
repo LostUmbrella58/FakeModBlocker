@@ -63,6 +63,10 @@ extra-detections:
   sign-translation:
     enabled: true
     skip-bedrock-via-floodgate: true
+    avoid-open-screens: true      # wait for the player's screen to clear instead of overwriting it
+    max-attempts: 4               # rounds to reopen when the client never answers
+    evade-timeout-seconds: 300    # report once after this long with a screen still open
+    evade-action: NOTICE          # NOTICE | KICK
     mods:
       Freecam:
         detect:

@@ -44,6 +44,10 @@ escalation:
   action-command: "执行命令"
   action-ignore: "忽略"
 
+# 虚拟告示牌检测。仅在 extra-detections.sign-translation.evade-action 为 KICK 时使用。
+sign:
+  evade-kick: "&c&l模组检测未能完成&r\n&7请关闭正在打开的界面（菜单 / 对话框 / 资源包确认框）后重新进服。"
+
 command:
   no-permission: "&c你没有权限使用该命令。"
   reload-success: "&aModBlocker 的配置与语言文件已重载。"

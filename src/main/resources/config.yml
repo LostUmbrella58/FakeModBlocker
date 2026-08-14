@@ -194,6 +194,35 @@ extra-detections:
   sign-translation:
     enabled: true
     skip-bedrock-via-floodgate: true
+
+    # Opening the detection sign is setScreen() on the client, so it replaces whatever the
+    # player is looking at. If that is a resource pack confirmation the player never gets to
+    # answer it and silently never receives the pack; dialogs and other plugins' menus are
+    # lost the same way. With this on, the check waits for the screen to clear instead.
+    #
+    # The wait has no deadline on purpose: a deadline would mean "hold a GUI open long enough
+    # and you are never checked". The player has to close it to play, and the check resumes
+    # the moment they do.
+    #
+    # Bukkit only reports container menus. Install PacketEvents (optional) and dialogs,
+    # resource pack prompts and books become visible too - and a player turning their camera
+    # is used to notice they closed a dialog with ESC, which sends nothing back.
+    avoid-open-screens: true
+
+    # How many rounds to open the sign when the client never answers
+    # (backoff 10s / 30s / 60s / 120s). A round where the client answered at least one page
+    # counts as done. Running out means the check could not be completed.
+    max-attempts: 4
+
+    # Report once when a player has kept a screen open for this many seconds and the check
+    # still cannot start. Reporting does not stop the waiting.
+    evade-timeout-seconds: 300
+
+    # What to do about a check that could never be completed: NOTICE (tell staff) or KICK.
+    # NOTICE by default - a stuck resource pack prompt, a slow client or a bad connection all
+    # land here, and kicking for those costs more than this symbolic check is worth.
+    evade-action: NOTICE
+
     mods:
       Freecam:
         detect:

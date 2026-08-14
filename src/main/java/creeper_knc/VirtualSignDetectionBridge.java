@@ -28,10 +28,29 @@ public class VirtualSignDetectionBridge implements Listener {
     private static final long OPEN_DELAY_TICKS = 40L;
     private static final long OPEN_SIGN_DELAY_TICKS = 1L;
     private static final long NEXT_PAGE_DELAY_TICKS = 10L;
+    /** How often to look again while the player has something else on screen. */
+    private static final long SCREEN_RECHECK_TICKS = 20L;
+    /**
+     * Backoff before reopening after a round the client never answered. Index = rounds failed so
+     * far, clamped to the last entry. Giving up after one silent round would mean a client that
+     * simply stalls past the response timeout is never checked again.
+     */
+    private static final long[] RETRY_BACKOFF_TICKS = {20L * 10, 20L * 30, 20L * 60, 20L * 120};
+    private static final int DEFAULT_MAX_ATTEMPTS = 4;
+    private static final int DEFAULT_EVADE_SECONDS = 300;
+
     private final FakeModBlocker plugin;
     private final ModBlocker parent;
     private FileConfiguration config;
     private final Map<UUID, DetectSession> detectSessions = new ConcurrentHashMap<>();
+    /**
+     * "This player still owes us a check", kept across rounds.
+     *
+     * <p>A DetectSession is one sign being opened and dies whenever a page times out or the screen
+     * is busy; this map is what remembers that the player was never actually checked. Without it,
+     * anything that made a round fail also silently excused the player for the whole session.
+     */
+    private final Map<UUID, PendingDetect> pendingDetects = new ConcurrentHashMap<>();
     private final Map<UUID, Inventory> flashInventories = new ConcurrentHashMap<>();
     private final List<LineEntry> lineEntries = new ArrayList<>();
 
@@ -115,24 +134,117 @@ public class VirtualSignDetectionBridge implements Listener {
     }
 
     public void openSignCheckLater(Player player) {
-        plugin.getScheduler().runDelayed(player, OPEN_DELAY_TICKS, () -> {
+        if (player.hasPermission("fakemodblocker.bypass")) {
+            // Leave early so an exempt player never triggers a round, nor an "unchecked" warning.
+            return;
+        }
+        pendingDetects.put(player.getUniqueId(), new PendingDetect());
+        armDetection(player, OPEN_DELAY_TICKS);
+    }
+
+    /**
+     * Queue one round. The chain keeps itself alive for as long as {@link #pendingDetects} still
+     * owes a check, so the player either gets checked or leaves - waiting it out is not an option.
+     */
+    private void armDetection(Player player, long delayTicks) {
+        UUID uuid = player.getUniqueId();
+        plugin.getScheduler().runDelayed(player, Math.max(1L, delayTicks), () -> {
             if (!player.isOnline()) {
+                cleanup(uuid);
+                pendingDetects.remove(uuid);
+                ScreenGate.forget(uuid);
                 return;
+            }
+            if (!pendingDetects.containsKey(uuid)) {
+                return; // already checked
+            }
+            if (detectSessions.containsKey(uuid)) {
+                return; // a round is already running
             }
 
             if (parent.shouldSkipSignDetectionForBedrock(player)) {
                 if (config.getBoolean("logger")) {
                     parent.logToConsole("Skipped delayed virtual sign detection for Bedrock player via Floodgate: " + player.getName());
                 }
+                pendingDetects.remove(uuid);
                 return;
             }
 
             detectSessions.put(
-                    player.getUniqueId(),
+                    uuid,
                     new DetectSession(player.getLocation().getBlock().getLocation().add(0.0, -5.0, 0.0), 0)
             );
             openDetectionSign(player);
         });
+    }
+
+    /** Checked for real: hit, all pages walked, or exempt. Stop owing a round. */
+    private void finishDetection(UUID uuid) {
+        pendingDetects.remove(uuid);
+        cleanup(uuid);
+    }
+
+    /**
+     * The round produced nothing usable, but the debt stands: reopen after a backoff.
+     * Only once the attempts run out is this reported as an unfinished check.
+     */
+    private void retryRound(Player player, String why) {
+        UUID uuid = player.getUniqueId();
+        cleanup(uuid);
+
+        PendingDetect pending = pendingDetects.get(uuid);
+        if (pending == null || !player.isOnline()) {
+            return;
+        }
+
+        int failed = pending.recordFailedRound();
+        if (failed >= maxAttempts()) {
+            pendingDetects.remove(uuid);
+            onDetectionEvaded(player, why + " (no response after " + failed + " rounds)");
+            return;
+        }
+
+        long delay = RETRY_BACKOFF_TICKS[Math.min(failed - 1, RETRY_BACKOFF_TICKS.length - 1)];
+        if (config.getBoolean("logger")) {
+            parent.logToConsole("Sign detection for " + player.getName() + " produced no response ("
+                    + why + "); retrying in " + (delay / 20) + "s (round " + (failed + 1) + ").");
+        }
+        armDetection(player, delay);
+    }
+
+    /**
+     * Could not finish the check. Reporting only by default: a stuck resource pack prompt, a slow
+     * client or a bad connection all land here, and kicking for those does more damage than this
+     * symbolic check ever prevents. Admins who want it strict can set evade-action to KICK.
+     */
+    private void onDetectionEvaded(Player player, String why) {
+        parent.logToConsole("Player " + player.getName() + " never completed the sign check: " + why);
+        parent.notifyStaff("Player " + player.getName() + " did not complete the mod check (" + why + ")");
+
+        String action = config.getString("extra-detections.sign-translation.evade-action", "NOTICE");
+        if (!"KICK".equalsIgnoreCase(action) || !player.isOnline()
+                || player.hasPermission("fakemodblocker.bypass")) {
+            return;
+        }
+        MessageBridge.kick(player, parent.getMessage("sign.evade-kick",
+                "&c&lCheck could not be completed&r\n&7Close any open screen and rejoin."));
+    }
+
+    private int maxAttempts() {
+        return Math.max(1, config.getInt("extra-detections.sign-translation.max-attempts", DEFAULT_MAX_ATTEMPTS));
+    }
+
+    private long evadeTimeoutTicks() {
+        return Math.max(1, config.getInt("extra-detections.sign-translation.evade-timeout-seconds",
+                DEFAULT_EVADE_SECONDS)) * 20L;
+    }
+
+    /** Called by {@link ModBlocker} so a leaving player does not leave state behind. */
+    public void onPlayerQuit(UUID uuid) {
+        detectSessions.remove(uuid);
+        pendingDetects.remove(uuid);
+        flashInventories.remove(uuid);
+        ScreenGate.forget(uuid);
     }
 
     private void openDetectionSign(Player player) {
@@ -143,8 +255,14 @@ public class VirtualSignDetectionBridge implements Listener {
             return;
         }
 
-        if (lineEntries.isEmpty()) {
+        // A round scheduled before the player finished must not start a new one afterwards.
+        if (!pendingDetects.containsKey(uuid)) {
             cleanup(uuid);
+            return;
+        }
+
+        if (lineEntries.isEmpty()) {
+            finishDetection(uuid);
             return;
         }
 
@@ -152,7 +270,37 @@ public class VirtualSignDetectionBridge implements Listener {
         int start = page * PAGE_SIZE;
         if (start >= lineEntries.size()) {
             restoreClientBlock(player, session.signLocation);
-            cleanup(uuid);
+            endRound(player, "all pages walked");
+            return;
+        }
+
+        // openVirtualSign is setScreen() on the client, so opening now would throw away a resource
+        // pack prompt or a dialog and the player would never get to answer it. Wait instead.
+        //
+        // There is deliberately no wait limit. An upper bound here would read as "hold any GUI open
+        // long enough and this session is never checked" - the player has to close it to play, and
+        // the poll picks the check right back up the second they do.
+        if (avoidOpenScreens() && ScreenGate.hasScreenOpen(player)) {
+            PendingDetect pending = pendingDetects.get(uuid);
+            if (pending != null) {
+                long waited = pending.addScreenWait(SCREEN_RECHECK_TICKS);
+                if (!pending.isEvadeReported() && waited >= evadeTimeoutTicks()) {
+                    pending.markEvadeReported();
+                    onDetectionEvaded(player, "a screen has been open for " + (waited / 20)
+                            + "s, the check cannot start");
+                }
+            }
+            if (!player.isOnline()) {
+                cleanup(uuid);
+                return;
+            }
+            plugin.getScheduler().runDelayed(player, SCREEN_RECHECK_TICKS, () -> {
+                if (!player.isOnline()) {
+                    cleanup(uuid);
+                    return;
+                }
+                openDetectionSign(player);
+            });
             return;
         }
 
@@ -216,7 +364,17 @@ public class VirtualSignDetectionBridge implements Listener {
                                 Position.block(signLocation.getBlockX(), signLocation.getBlockY(), signLocation.getBlockZ()),
                                 Side.BACK
                         );
-                        player.closeInventory();
+
+                        // Taking the fake block away is what closes the editor: the client's
+                        // SignBlockEntity goes invalid, AbstractSignEditScreen#tick notices and runs
+                        // onDone() -> removed(), which unconditionally sends the text back. The text
+                        // itself was snapshotted when the screen was built, so removing the block does
+                        // not change what comes back.
+                        //
+                        // closeInventory() would also work, but it is clientSideCloseContainer() =
+                        // setScreen(null) and therefore closes whatever the player has on screen -
+                        // including a resource pack prompt they had not answered yet.
+                        restoreClientBlock(player, signLocation);
 
                         plugin.getScheduler().runDelayed(player, 15L, () -> {
                             DetectSession latest = detectSessions.get(uuid);
@@ -251,7 +409,7 @@ public class VirtualSignDetectionBridge implements Listener {
                                 if (config.getBoolean("logger")) {
                                     parent.logToConsole("Sign detection completed with no match (timeout fallback).");
                                 }
-                                cleanup(uuid);
+                                endRound(player, "last page timed out");
                             }
                         });
 
@@ -260,14 +418,14 @@ public class VirtualSignDetectionBridge implements Listener {
                             parent.logToConsole("Failed to open virtual sign for " + player.getName() + ": " + t.getMessage());
                         }
                         restoreClientBlock(player, signLocation);
-                        cleanup(uuid);
+                        retryRound(player, "could not open the virtual sign (" + t.getMessage() + ")");
                     }
                 });
             } catch (Throwable t) {
                 if (config.getBoolean("logger")) {
                     parent.logToConsole("openDetectionSign error for " + player.getName() + ": " + t.getMessage());
                 }
-                cleanup(uuid);
+                retryRound(player, "error while building the virtual sign (" + t.getMessage() + ")");
             }
         });
     }
@@ -316,6 +474,12 @@ public class VirtualSignDetectionBridge implements Listener {
         session.waitingResponse = false;
         event.setCancelled(true);
 
+        // The client did answer, so this round is not a wash even if a later page times out.
+        PendingDetect pending = pendingDetects.get(uuid);
+        if (pending != null) {
+            pending.markResponded();
+        }
+
         if (!player.isOnline()) {
             cleanup(uuid);
             return;
@@ -323,13 +487,13 @@ public class VirtualSignDetectionBridge implements Listener {
 
         if (player.hasPermission("fakemodblocker.bypass")) {
             restoreClientBlock(player, session.signLocation);
-            cleanup(uuid);
+            finishDetection(uuid);
             return;
         }
 
         if (lineEntries.isEmpty()) {
             restoreClientBlock(player, session.signLocation);
-            cleanup(uuid);
+            finishDetection(uuid);
             return;
         }
 
@@ -362,7 +526,7 @@ public class VirtualSignDetectionBridge implements Listener {
                     parent.logToConsole("Sign detection hit: " + entry.mod.getName() + " | key=" + entry.key + " | content=" + plain);
                 }
                 restoreClientBlock(player, session.signLocation);
-                cleanup(uuid);
+                finishDetection(uuid);
                 parent.handleSignDetection(player, entry.mod);
                 return;
             }
@@ -389,8 +553,27 @@ public class VirtualSignDetectionBridge implements Listener {
             if (config.getBoolean("logger")) {
                 parent.logToConsole("Sign detection completed with no match.");
             }
-            cleanup(uuid);
+            endRound(player, "all pages checked");
         }
+    }
+
+    /**
+     * A round reached its end. It only counts as done if the client answered at least one page -
+     * a round where every page timed out proves nothing and has to be retried, otherwise a client
+     * that never replies would quietly pass as clean.
+     */
+    private void endRound(Player player, String why) {
+        UUID uuid = player.getUniqueId();
+        PendingDetect pending = pendingDetects.get(uuid);
+        if (pending != null && !pending.hasResponded()) {
+            retryRound(player, why);
+            return;
+        }
+        finishDetection(uuid);
+    }
+
+    private boolean avoidOpenScreens() {
+        return config.getBoolean("extra-detections.sign-translation.avoid-open-screens", true);
     }
 
     private int extractMarkerToken(List<String> plainLines) {
@@ -452,6 +635,51 @@ public class VirtualSignDetectionBridge implements Listener {
             this.page = page;
             this.openToken = 0;
             this.waitingResponse = false;
+        }
+    }
+
+    /**
+     * The running tally of "has this player been checked yet", kept across rounds.
+     *
+     * <p>{@link DetectSession} is one sign opening and is thrown away whenever a page times out or
+     * the screen is busy; this survives that, which is what stops a failed round from doubling as a
+     * free pass.
+     */
+    private static final class PendingDetect {
+        /** Rounds in a row where the client answered nothing. */
+        private int failedRounds;
+        /** Did the client answer any page of the current round? */
+        private boolean responded;
+        /** Ticks spent waiting for the player's screen to free up. */
+        private long screenWaitedTicks;
+        /** Report an unfinished check once, not once per poll. */
+        private boolean evadeReported;
+
+        private void markResponded() {
+            responded = true;
+        }
+
+        private boolean hasResponded() {
+            return responded;
+        }
+
+        /** Starts the next round from a clean slate and returns how many rounds have failed. */
+        private int recordFailedRound() {
+            responded = false;
+            return ++failedRounds;
+        }
+
+        private long addScreenWait(long ticks) {
+            screenWaitedTicks += ticks;
+            return screenWaitedTicks;
+        }
+
+        private boolean isEvadeReported() {
+            return evadeReported;
+        }
+
+        private void markEvadeReported() {
+            evadeReported = true;
         }
     }
 }
