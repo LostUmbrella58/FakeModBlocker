@@ -221,6 +221,9 @@ public class VirtualSignDetectionBridge implements Listener {
         parent.logToConsole("Player " + player.getName() + " never completed the sign check: " + why);
         parent.notifyStaff("Player " + player.getName() + " did not complete the mod check (" + why + ")");
 
+        parent.postDiscord("evade", player, ModBlocker.discordValues(null, ViolationManager.SOURCE_SIGN,
+                parent.getMessage("discord.evade-action", "not completed"), null, null, null, why));
+
         String action = config.getString("extra-detections.sign-translation.evade-action", "NOTICE");
         if (!"KICK".equalsIgnoreCase(action) || !player.isOnline()
                 || player.hasPermission("fakemodblocker.bypass")) {

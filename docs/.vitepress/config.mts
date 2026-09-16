@@ -35,6 +35,7 @@ function sidebarEn() {
         { text: 'Channel Detection', link: '/guide/channel-detection' },
         { text: 'Sign Translation Detection', link: '/guide/sign-detection' },
         { text: 'Escalation (Warn → Kick → Ban)', link: '/guide/escalation' },
+        { text: 'Discord Notifications', link: '/guide/discord' },
         { text: 'Messages & Locales', link: '/guide/messages' }
       ]
     },
@@ -65,6 +66,7 @@ function sidebarZh() {
         { text: '频道检测', link: '/zh/guide/channel-detection' },
         { text: '告示牌翻译检测', link: '/zh/guide/sign-detection' },
         { text: '阶梯处罚（警告/踢出/封禁）', link: '/zh/guide/escalation' },
+        { text: 'Discord 通知', link: '/zh/guide/discord' },
         { text: '消息与多语言', link: '/zh/guide/messages' }
       ]
     },

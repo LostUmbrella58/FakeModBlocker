@@ -48,10 +48,35 @@ escalation:
 sign:
   evade-kick: "&c&lThe mod check could not be completed&r\n&7Close any open screen (menu, dialog, resource pack prompt) and rejoin."
 
+# Discord notifications. Only used when discord.enabled is true AND DiscordSRV is installed.
+# Placeholders: %player% %uuid% %server% %mod% %mods% %count% %step% %steps% %reason% %source% %action%
+# Discord markdown works here (**bold**, `code`, *italic*). Minecraft colour codes are stripped.
+discord:
+  # The embed description, or the whole line when discord.embed is false.
+  channel-detection: "**%player%** joined with a blocked plugin channel: `%mods%`"
+  sign-detection: "**%player%** was detected using **%mod%** through the sign check (action: %action%)"
+  escalation: "**%player%** reached violation %count% for **%mod%** -> step %step%/%steps%: %action%"
+  evade: "**%player%** never completed the mod check (%reason%)"
+  test: "Connection test requested by **%player%**. If you can read this, it works."
+  # Embed titles.
+  title-detection: "Mod detected"
+  title-escalation: "Escalation"
+  title-evade: "Check not completed"
+  title-test: "Connection test"
+  # Embed field labels. A field is skipped when it has no value for that event.
+  field-player: "Player"
+  field-mod: "Mod / channel"
+  field-action: "Action"
+  field-violations: "Violations"
+  field-source: "Source"
+  footer: "FakeModBlocker"
+  # %action% for the evade event, which has no punishment of its own.
+  evade-action: "not completed"
+
 command:
   no-permission: "&cYou do not have permission to use this command."
   reload-success: "&aModBlocker configuration and messages reloaded successfully."
-  usage: "&eUsage: /modblocker <reload | check <player> | violations <player> | clear <player> [mod]>"
+  usage: "&eUsage: /modblocker <reload | check <player> | violations <player> | clear <player> [mod] | discord test>"
   player-not-found: "&cPlayer %player% is not online or does not exist."
   check-header: "&bChecking MOD plugin channels for &f%player%&b:"
   check-channels: "&7Registered channels:"
@@ -76,3 +101,9 @@ command:
   clear-success: "&aCleared &f%count%&a violation record(s) for &f%player%&a."
   clear-none: "&7No violation records found for &f%player%&7."
   escalation-unavailable: "&cThe escalation system is not initialized."
+  discord-test-sent: "&aTest message sent. Check the Discord channel; failures are printed to console."
+  discord-disabled: "&7Discord notifications are off (discord.enabled in config.yml)."
+  discord-no-discordsrv: "&cDiscordSRV is not installed, so Discord notifications are off."
+  discord-not-ready: "&eDiscordSRV is still connecting to Discord. Try again in a moment."
+  discord-no-channel: "&cCould not resolve the channel. Check discord.channel in config.yml."
+  discord-test-failed: "&cThe test message failed - see console."

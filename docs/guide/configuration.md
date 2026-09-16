@@ -101,3 +101,26 @@ Counts are stored per player in `violations.yml` and managed with
 Full reference: [Escalation](./escalation)
 
 See also: [Channel Detection](./channel-detection), [Sign Translation Detection](./sign-detection)
+
+## discord
+
+Optional Discord notifications via DiscordSRV, **off by default**.
+
+```yaml
+discord:
+  enabled: false
+  channel: ""        # "" = DiscordSRV main channel | game-channel name | raw channel ID
+  embed: true
+  mention: ""
+  events:
+    channel-detection: true
+    sign-detection: true
+    escalation: true
+    evade: true
+```
+
+Requires DiscordSRV; without it the section does nothing. Verify with
+`/modblocker discord test`. Message templates live in your
+[language file](./messages) under `discord:`.
+
+Full reference: [Discord Notifications](./discord)

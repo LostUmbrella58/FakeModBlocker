@@ -312,6 +312,15 @@ public final class ViolationManager {
                             + " violation &f%count%")));
         }
 
+        // The ladder owns the punishment, so it also owns the Discord message: the per-detection
+        // post is suppressed upstream whenever this runs.
+        if (step.action != EscalationAction.IGNORE
+                || plugin.getConfig().getBoolean("discord.include-ignored", false)) {
+            parent.postDiscord("escalation", player, ModBlocker.discordValues(modLabel, source,
+                    actionLabel(step.action), String.valueOf(count), String.valueOf(index + 1),
+                    String.valueOf(current.ladder.size()), contextReason));
+        }
+
         String text = placeholders.apply(resolveMessage(step));
 
         switch (step.action) {

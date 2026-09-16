@@ -1,5 +1,11 @@
 # 兼容性
 
+## Java
+
+FakeModBlocker 使用 Java 21 编译，**运行本插件需要 Java 21 或更高版本**，与服务端是哪个
+Minecraft 版本无关。低于此版本的 JVM 会直接以 `UnsupportedClassVersionError` 拒绝加载——
+这是 Java 版本问题，不是服务端版本问题。
+
 ## 主频道检测
 
 - 设计目标：约 **1.8 – 1.21.11+**

@@ -2,7 +2,8 @@
 
 ## Requirements
 
-- Java matching your server
+- **Java 21 or newer.** FakeModBlocker is compiled using Java 21, so an older JVM refuses
+  to load it with `UnsupportedClassVersionError`.
 - A Bukkit API server: Spigot / Paper / Purpur / Folia / PandaSpigot, etc.
 - Main feature: roughly 1.8–1.21.11+
 - Sign translation detection: Paper **1.21.5+** (or a fork with the same API)
@@ -15,6 +16,7 @@
 | LuckPerms | Permission management |
 | floodgate | Skip Bedrock players for sign detection |
 | [PacketEvents](https://www.spigotmc.org/resources/packetevents-api.80279/) | Intercept plugin-channel registration packets earlier and more reliably |
+| [DiscordSRV](https://modrinth.com/plugin/discordsrv) | Post detections to a Discord channel (see [Discord Notifications](./discord)) |
 
 If these are missing, related features are skipped or fall back quietly.
 

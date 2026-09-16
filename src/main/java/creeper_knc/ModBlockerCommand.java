@@ -30,6 +30,15 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (args.length >= 1 && args[0].equalsIgnoreCase("discord")) {
+            if (args.length != 2 || !args[1].equalsIgnoreCase("test")) {
+                MessageBridge.send(sender, getMsg("command.usage"));
+                return true;
+            }
+            testDiscord(sender);
+            return true;
+        }
+
         if (args.length >= 1 && args[0].equalsIgnoreCase("violations")) {
             if (args.length != 2) {
                 MessageBridge.send(sender, getMsg("command.usage"));
@@ -101,6 +110,43 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
 
         MessageBridge.send(sender, getMsg("command.usage"));
         return true;
+    }
+
+    /**
+     * Goes through the real bridge and the real channel resolution, so a success here means a
+     * detection would arrive too. Reflective on purpose: naming DiscordSRVBridge from this class
+     * would class-load it on servers that have no DiscordSRV.
+     */
+    private void testDiscord(CommandSender sender) {
+        ModBlocker modBlocker = FakeModBlocker.getInstance().getModBlocker();
+        Object bridge = modBlocker == null ? null : modBlocker.getDiscordBridge();
+
+        if (bridge == null) {
+            boolean enabled = FakeModBlocker.getInstance().getConfig().getBoolean("discord.enabled", false);
+            MessageBridge.send(sender, enabled
+                    ? getMsg("command.discord-no-discordsrv", "&cDiscordSRV is not installed, so notifications are off.")
+                    : getMsg("command.discord-disabled", "&7Discord notifications are off (discord.enabled in config.yml)."));
+            return;
+        }
+
+        String result;
+        try {
+            result = String.valueOf(bridge.getClass().getMethod("test", String.class)
+                    .invoke(bridge, sender.getName()));
+        } catch (Throwable t) {
+            result = "FAILED";
+        }
+
+        switch (result) {
+            case "READY" -> MessageBridge.send(sender, getMsg("command.discord-test-sent",
+                    "&aTest message sent. Check the Discord channel; failures are printed to console."));
+            case "NOT_READY" -> MessageBridge.send(sender, getMsg("command.discord-not-ready",
+                    "&eDiscordSRV is still connecting. Try again in a moment."));
+            case "NO_CHANNEL" -> MessageBridge.send(sender, getMsg("command.discord-no-channel",
+                    "&cCould not resolve the channel. Check discord.channel in config.yml."));
+            default -> MessageBridge.send(sender, getMsg("command.discord-test-failed",
+                    "&cThe test message failed - see console."));
+        }
     }
 
     private void showViolations(CommandSender sender, String name) {
@@ -185,10 +231,13 @@ public class ModBlockerCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 1) {
-            return filter(Arrays.asList("reload", "check", "violations", "clear"), args[0]);
+            return filter(Arrays.asList("reload", "check", "violations", "clear", "discord"), args[0]);
         }
 
         if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("discord")) {
+                return filter(Collections.singletonList("test"), args[1]);
+            }
             if (args[0].equalsIgnoreCase("check")) {
                 return filter(onlineNames(), args[1]);
             }

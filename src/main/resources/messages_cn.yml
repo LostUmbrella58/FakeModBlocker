@@ -48,10 +48,35 @@ escalation:
 sign:
   evade-kick: "&c&l模组检测未能完成&r\n&7请关闭正在打开的界面（菜单 / 对话框 / 资源包确认框）后重新进服。"
 
+# Discord 通知，仅在 config.yml 里 discord.enabled 为 true 且已安装 DiscordSRV 时生效。
+# 占位符：%player% %uuid% %server% %mod% %mods% %count% %step% %steps% %reason% %source% %action%
+# 这里可以用 Discord 的 markdown（**粗体**、`代码`、*斜体*）；Minecraft 颜色代码会被自动去掉。
+discord:
+  # embed 的正文；当 discord.embed 为 false 时就是整条消息。
+  channel-detection: "**%player%** 带着被禁止的插件频道进服：`%mods%`"
+  sign-detection: "**%player%** 被告示牌检测判定使用了 **%mod%**（处理：%action%）"
+  escalation: "**%player%** 因 **%mod%** 累计违规 %count% 次 -> 第 %step%/%steps% 级：%action%"
+  evade: "**%player%** 始终没有完成模组检测（%reason%）"
+  test: "由 **%player%** 发起的连通性测试。能看到这条就说明配置正常。"
+  # embed 标题。
+  title-detection: "检测到模组"
+  title-escalation: "阶梯处罚"
+  title-evade: "检测未完成"
+  title-test: "连通性测试"
+  # embed 字段名。某个事件没有对应值时，该字段会被跳过。
+  field-player: "玩家"
+  field-mod: "模组 / 频道"
+  field-action: "处理"
+  field-violations: "违规次数"
+  field-source: "来源"
+  footer: "FakeModBlocker"
+  # evade 事件没有自己的处罚，这里是它的 %action% 显示文本。
+  evade-action: "未完成"
+
 command:
   no-permission: "&c你没有权限使用该命令。"
   reload-success: "&aModBlocker 的配置与语言文件已重载。"
-  usage: "&e用法：/modblocker <reload | check <玩家> | violations <玩家> | clear <玩家> [模组]>"
+  usage: "&e用法：/modblocker <reload | check <玩家> | violations <玩家> | clear <玩家> [模组] | discord test>"
   player-not-found: "&c玩家 %player% 不在线或不存在。"
   check-header: "&b正在检查 &f%player% &b的模组插件频道："
   check-channels: "&7已注册的频道："
@@ -76,3 +101,9 @@ command:
   clear-success: "&a已清除 &f%player% &a的 &f%count% &a条违规记录。"
   clear-none: "&7没有找到 &f%player% &7的违规记录。"
   escalation-unavailable: "&c阶梯处罚系统尚未初始化。"
+  discord-test-sent: "&a测试消息已发出，请查看 Discord 频道；失败信息会打印到控制台。"
+  discord-disabled: "&7Discord 通知当前已关闭（config.yml 里的 discord.enabled）。"
+  discord-no-discordsrv: "&c未安装 DiscordSRV，Discord 通知不可用。"
+  discord-not-ready: "&eDiscordSRV 还在连接 Discord，请稍后再试。"
+  discord-no-channel: "&c无法解析目标频道，请检查 config.yml 里的 discord.channel。"
+  discord-test-failed: "&c测试消息发送失败，详见控制台。"

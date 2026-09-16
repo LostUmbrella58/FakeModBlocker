@@ -69,6 +69,87 @@ notifyStaff: true
 notificationPermission: fakemodblocker.notify
 
 # =============================================================================
+# discord — optional notifications, routed through DiscordSRV
+# =============================================================================
+# OFF by default, and requires DiscordSRV to be installed. Nothing is bundled:
+# the one class that talks to DiscordSRV is loaded only when this is enabled and
+# DiscordSRV is present, exactly like the PacketEvents and sign-detection
+# bridges. Without DiscordSRV this section does nothing at all.
+#
+# DiscordSRV owns the connection, the request queue and the rate limiting, so a
+# slow Discord can never delay a player join.
+#
+# Verify with:  /modblocker discord test
+#
+# One detection is one message: when the escalation ladder handles a detection
+# it posts the `escalation` message and the per-detection one is skipped.
+# =============================================================================
+# discord —— 可选通知，走 DiscordSRV
+# =============================================================================
+# 默认关闭，且需要服主已安装 DiscordSRV。本插件不打包任何东西：
+# 唯一接触 DiscordSRV 的那个类，只有在这里启用且 DiscordSRV 存在时才会被加载，
+# 跟 PacketEvents、告示牌检测那两个 bridge 是同一套做法。
+# 没装 DiscordSRV 时，这一整段完全不起作用。
+#
+# 连接、请求队列和限流都由 DiscordSRV 负责，所以 Discord 再慢也不会拖慢玩家进服。
+#
+# 填好后用 /modblocker discord test 验证。
+#
+# 一次检测只发一条：阶梯处罚接管时只发 escalation 那条，单次检测那条会被跳过。
+# =============================================================================
+discord:
+  enabled: false
+
+  # Where to post. Three ways to write it:
+  #   ""                     -> DiscordSRV's main channel
+  #   "global"               -> a DiscordSRV game-channel name (mapping stays in DiscordSRV's config)
+  #   "123456789012345678"   -> a raw Discord channel ID
+  # 发到哪里，三种写法：
+  #   ""                     -> DiscordSRV 的主频道
+  #   "global"               -> DiscordSRV 的游戏频道名（映射关系仍由 DiscordSRV 自己的配置决定）
+  #   "123456789012345678"   -> 直接填 Discord 频道 ID
+  channel: ""
+
+  # true  -> a coloured embed with Player / Mod / Action fields
+  # false -> one plain line
+  # true 为彩色 embed（带 玩家 / 模组 / 处理 字段），false 为纯文本单行。
+  embed: true
+
+  # Prepended to every message. "<@&ROLE_ID>" for a role, "<@USER_ID>" for a person.
+  # Empty means nothing is ever pinged — and nothing in a message can ping on its own,
+  # not even a literal @everyone that ended up in a mod name or a reason string.
+  # 每条消息前缀。角色用 "<@&角色ID>"，个人用 "<@用户ID>"。
+  # 留空则永不 @ 任何人；消息正文里就算出现 @everyone 也不会真的触发提醒。
+  mention: ""
+
+  # Shown as %server% in the templates. Empty = the server's own name.
+  # 模板里的 %server%；留空则使用服务端自身的名称。
+  server-name: ""
+
+  # Which detections get posted. 哪些检测会推送。
+  events:
+    # A forbidden plugin channel was matched. 匹配到被禁止的插件频道。
+    channel-detection: true
+    # A sign-translation key came back translated. 告示牌翻译键检测命中。
+    sign-detection: true
+    # An escalation ladder rung was applied. 触发了阶梯处罚的某一级。
+    escalation: true
+    # The virtual sign check could never be completed. 虚拟告示牌检测始终无法完成。
+    evade: true
+
+  # Also post detections whose action is IGNORE (count and log only, punish nothing).
+  # 是否推送 action 为 IGNORE 的检测（只计数记录、不处罚）。
+  include-ignored: false
+
+  # Embed colours, #RRGGBB. Only used when embed is true. 仅在 embed: true 时生效。
+  colors:
+    notice: "#E67E22"
+    kick: "#E74C3C"
+    ban: "#992D22"
+    evade: "#F1C40F"
+    test: "#2ECC71"
+
+# =============================================================================
 # escalation — optional warn -> kick -> ban "strike" system
 # =============================================================================
 # OFF by default. While `enabled: false` the plugin behaves exactly as before:

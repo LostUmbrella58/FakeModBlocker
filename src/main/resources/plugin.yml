@@ -1,17 +1,17 @@
 name: FakeModBlocker
-version: '1.9.0'
+version: '1.10.0'
 main: creeper_knc.FakeModBlocker
 api-version: '1.21'
 prefix: FakeModBlocker
 authors: [ Creeper_可能c (aka Maybe__c) ]
 description: A Simple Mod Blocking Plugin
-softdepend: [PlaceholderAPI, LuckPerms, floodgate, packetevents]
+softdepend: [PlaceholderAPI, LuckPerms, floodgate, packetevents, DiscordSRV]
 website: https://afdian.com/a/CreeperFamily_ASTW?
 folia-supported: true
 commands:
   modblocker:
     description: ModBlocker admin commands
-    usage: /modblocker <reload|check <player>|violations <player>|clear <player> [mod]>
+    usage: /modblocker <reload|check <player>|violations <player>|clear <player> [mod]|discord test>
     permission: fakemodblocker.admin
 permissions:
   fakemodblocker.admin:

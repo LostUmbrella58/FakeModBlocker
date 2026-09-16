@@ -1,5 +1,11 @@
 # Compatibility
 
+## Java
+
+FakeModBlocker is compiled using Java 21. **Java 21 or newer is required to run this plugin**,
+whatever Minecraft version the server is. An older JVM refuses the jar outright with
+`UnsupportedClassVersionError` — that is a Java version problem, not a server version problem.
+
 ## Main channel detection
 
 - Target range: roughly **1.8 – 1.21.11+**

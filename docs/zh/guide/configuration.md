@@ -101,3 +101,25 @@ escalation:
 完整说明：[阶梯处罚](./escalation)
 
 详见：[频道检测](./channel-detection)、[告示牌翻译检测](./sign-detection)
+
+## discord
+
+经由 DiscordSRV 的可选 Discord 通知，**默认关闭**。
+
+```yaml
+discord:
+  enabled: false
+  channel: ""        # "" = DiscordSRV 主频道 | 游戏频道名 | Discord 频道 ID
+  embed: true
+  mention: ""
+  events:
+    channel-detection: true
+    sign-detection: true
+    escalation: true
+    evade: true
+```
+
+需要已安装 DiscordSRV；没装时这一段不起任何作用。填好后用
+`/modblocker discord test` 验证。消息模板在[语言文件](./messages)的 `discord:` 段里。
+
+完整说明：[Discord 通知](./discord)

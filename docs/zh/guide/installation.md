@@ -2,7 +2,8 @@
 
 ## 要求
 
-- Java 与你的服务端版本匹配
+- **Java 21 或更高版本。** FakeModBlocker 使用 Java 21 编译，低于此版本的 JVM 会直接以
+  `UnsupportedClassVersionError` 拒绝加载。
 - Spigot / Paper / Purpur / Folia / PandaSpigot 等 Bukkit API 服务端
 - 主功能：约 1.8–1.21.11+
 - 告示牌翻译检测：需要 Paper **1.21.5+**（或提供同等 API 的分支）
@@ -15,6 +16,7 @@
 | LuckPerms | 权限管理 |
 | floodgate | 告示牌检测可跳过基岩版玩家 |
 | [PacketEvents](https://www.spigotmc.org/resources/packetevents-api.80279/) | 更早、更可靠地拦截插件频道注册包 |
+| [DiscordSRV](https://modrinth.com/plugin/discordsrv) | 把检测结果推送到 Discord 频道（见 [Discord 通知](./discord)） |
 
 未安装这些插件时，对应功能会安静跳过或回退到默认行为。
 

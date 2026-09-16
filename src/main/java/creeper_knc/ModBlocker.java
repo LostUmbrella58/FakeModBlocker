@@ -20,8 +20,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,6 +46,10 @@ public class ModBlocker implements Listener, PluginMessageListener {
     /** Optional: reports dialogs / resource pack prompts so sign detection can wait them out. */
     private Object screenTrackerBridge;
     private ViolationManager violationManager;
+    /** Optional: mirrors detections to Discord through DiscordSRV. Never loaded without it. */
+    private Object discordBridge;
+    /** Cached so a detection does not re-resolve the reflective entry point every time. */
+    private Method discordPostMethod;
 
     /** Why the API check failed, or null when the API is usable. */
     private String signApiUnsupportedReason;
@@ -63,10 +69,12 @@ public class ModBlocker implements Listener, PluginMessageListener {
         syncSignDetectionBridge();
         syncPacketEventsBridge();
         syncScreenTrackerBridge();
+        syncDiscordBridge();
 
         if (config.getBoolean("logger")) {
             logToConsole("Sign translation detection: " + describeSignDetectionState());
             logToConsole("Packet-level channel detection support: " + (packetEventsBridge != null));
+            logToConsole("Discord notifications: " + (discordBridge != null ? "ACTIVE" : "INACTIVE"));
         }
     }
 
@@ -85,6 +93,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
         syncSignDetectionBridge();
         syncPacketEventsBridge();
         syncScreenTrackerBridge();
+        syncDiscordBridge();
 
         if (signDetectionBridge != null) {
             try {
@@ -106,6 +115,7 @@ public class ModBlocker implements Listener, PluginMessageListener {
         disposeSignDetectionBridge();
         disposePacketEventsBridge();
         disposeScreenTrackerBridge();
+        disposeDiscordBridge();
         if (violationManager != null) {
             // Async tasks are rejected once the plugin is disabling, so write on this thread.
             violationManager.flush();
@@ -301,6 +311,12 @@ public class ModBlocker implements Listener, PluginMessageListener {
             }
         }
 
+        // Only reached when escalation did not take the detection over, so one detection is
+        // always exactly one Discord message: either this one or the escalation one, never both.
+        postDiscord("channel-detection", player, discordValues(String.join(", ", mods),
+                ViolationManager.SOURCE_CHANNEL, getMessage("escalation.action-kick", "kick"),
+                null, null, null, null));
+
         StringBuilder message = new StringBuilder();
         for (String mod : mods) {
             String path = "kick.mods." + mod.toLowerCase(Locale.ROOT);
@@ -334,6 +350,18 @@ public class ModBlocker implements Listener, PluginMessageListener {
                             ViolationManager.SOURCE_SIGN, reason)) {
                 return;
             }
+        }
+
+        // Same rule as the channel path: escalation posts its own message, so this only fires
+        // for detections it did not take over. IGNORE is observational, so it stays quiet
+        // unless the admin asked for it.
+        if (detectConfig.getAction() != DetectionAction.IGNORE
+                || config.getBoolean("discord.include-ignored", false)) {
+            postDiscord("sign-detection", player, discordValues(detectConfig.getName(),
+                    ViolationManager.SOURCE_SIGN,
+                    getMessage("escalation.action-" + detectConfig.getAction().name().toLowerCase(Locale.ROOT),
+                            detectConfig.getAction().name().toLowerCase(Locale.ROOT)),
+                    null, null, null, reason));
         }
 
         switch (detectConfig.getAction()) {
@@ -558,6 +586,120 @@ public class ModBlocker implements Listener, PluginMessageListener {
             bridge.getClass().getMethod("shutdown").invoke(bridge);
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * Brings the Discord bridge in line with the current config.
+     *
+     * <p>{@code DiscordSRVBridge} is the only class naming a DiscordSRV or JDA type, and it is
+     * reached exclusively through {@code Class.forName} here, so on a server without DiscordSRV
+     * it is never class-loaded and none of those types are ever resolved. Nothing anywhere else
+     * in the plugin may mention it by name, or that guarantee is gone.
+     */
+    private void syncDiscordBridge() {
+        if (!config.getBoolean("discord.enabled", false)) {
+            if (discordBridge != null) {
+                disposeDiscordBridge();
+                if (config.getBoolean("logger")) {
+                    logToConsole("Discord notifications disabled in config; bridge unloaded.");
+                }
+            }
+            return;
+        }
+
+        if (discordBridge != null) {
+            return;
+        }
+
+        if (!detectDiscordSrvSupport()) {
+            if (config.getBoolean("logger")) {
+                logToConsole("discord.enabled is true but DiscordSRV is not installed."
+                        + " Discord notifications stay off.");
+            }
+            return;
+        }
+
+        try {
+            Class<?> bridgeClass = Class.forName("creeper_knc.DiscordSRVBridge");
+            Constructor<?> constructor = bridgeClass.getConstructor(FakeModBlocker.class, ModBlocker.class);
+            Object bridge = constructor.newInstance(FakeModBlocker.getInstance(), this);
+
+            Method post = bridgeClass.getMethod("post", String.class, Player.class, Map.class);
+            bridgeClass.getMethod("init").invoke(bridge);
+
+            this.discordBridge = bridge;
+            this.discordPostMethod = post;
+        } catch (Throwable t) {
+            // Only reached when DiscordSRV is installed, so a failure here is a real
+            // packaging/compatibility problem rather than a missing optional dependency.
+            this.discordBridge = null;
+            this.discordPostMethod = null;
+            FakeModBlocker.getInstance().getLogger().log(Level.WARNING,
+                    "DiscordSRV is installed and discord.enabled is true, but the bridge could not be"
+                            + " loaded. Discord notifications stay off.", unwrap(t));
+        }
+    }
+
+    private boolean detectDiscordSrvSupport() {
+        try {
+            return Bukkit.getPluginManager().getPlugin("DiscordSRV") != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void disposeDiscordBridge() {
+        Object bridge = this.discordBridge;
+        this.discordBridge = null;
+        this.discordPostMethod = null;
+        if (bridge == null) {
+            return;
+        }
+        try {
+            bridge.getClass().getMethod("shutdown").invoke(bridge);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** No-op when the bridge is not loaded, so every call site can stay a single unguarded line. */
+    void postDiscord(String eventKey, Player player, Map<String, String> values) {
+        Object bridge = this.discordBridge;
+        Method post = this.discordPostMethod;
+        if (bridge == null || post == null) {
+            return;
+        }
+        // "test" is a manual command and is never muted by the events list.
+        if (!"test".equals(eventKey) && !config.getBoolean("discord.events." + eventKey, true)) {
+            return;
+        }
+        try {
+            post.invoke(bridge, eventKey, player, values);
+        } catch (Throwable ignored) {
+            // The bridge already reports its own failures; a notification never breaks a detection.
+        }
+    }
+
+    /**
+     * Built here rather than in the bridge: a static helper over there would be enough to
+     * class-load it, which is exactly what the reflective loading is there to prevent.
+     */
+    static Map<String, String> discordValues(String mods, String source, String action, String count,
+                                             String step, String steps, String reason) {
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put("%mod%", mods == null ? "" : mods);
+        values.put("%mods%", mods == null ? "" : mods);
+        values.put("%source%", source == null ? "" : source);
+        values.put("%action%", action == null ? "" : action);
+        values.put("%count%", count == null ? "" : count);
+        values.put("%step%", step == null ? "" : step);
+        values.put("%steps%", steps == null ? "" : steps);
+        values.put("%reason%", reason == null ? "" : reason);
+        return values;
+    }
+
+    /** The command needs it to run a test; kept as Object so no caller resolves the bridge type. */
+    Object getDiscordBridge() {
+        return discordBridge;
     }
 
     private void disposePacketEventsBridge() {

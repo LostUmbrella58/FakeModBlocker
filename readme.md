@@ -20,6 +20,7 @@ It also supports an **optional advanced sign translation detection module** on s
 ✅ Spigot / Paper / Purpur / Folia / PandaSpigot support  
 ✅ Optional advanced **sign translation key detection** on supported server APIs  
 ✅ Optional **escalation system**: warn on the first offence, kick on the next, ban after that
+✅ Optional **Discord notifications** via DiscordSRV — off by default, nothing bundled
 
 ---
 
@@ -80,6 +81,13 @@ This makes FakeModBlocker ideal for detecting casual use of mod loaders or certa
 3. Edit `config.yml` and your language file
 4. Use `/modblocker reload` to apply changes instantly
 5. Some mods are pre-configured in `config.yml`, and you can freely modify them to match your server rules
+
+---
+
+## ⚙️ Requirements
+
+FakeModBlocker is compiled using Java 21.
+**Java 21 or newer is required to run this plugin.**
 
 ---
 
