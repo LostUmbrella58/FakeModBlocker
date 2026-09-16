@@ -19,7 +19,7 @@ It also supports an **optional advanced sign translation detection module** on s
 ✅ Reload support: `/modblocker reload`  
 ✅ Spigot / Paper / Purpur / Folia / PandaSpigot support  
 ✅ Optional advanced **sign translation key detection** on supported server APIs  
-✅ Optional **escalation system**: warn on the first offence, kick on the next, ban after that
+✅ Optional **escalation system**: warn on the first offence, kick on the next, ban after that  
 ✅ Optional **Discord notifications** via DiscordSRV — off by default, nothing bundled
 
 ---
@@ -58,6 +58,28 @@ It works by opening a sign editor with specific translation keys and checking wh
 
 ⚠️ This feature depends on **server API support for opening sign editors**.  
 If the current server version / implementation does not support the required public API, FakeModBlocker will **automatically disable this feature and skip it safely**.
+
+---
+
+## 🔔 Optional Discord Notifications
+
+Detections can be mirrored to a Discord channel through **[DiscordSRV](https://www.spigotmc.org/resources/discordsrv.18494/)**.
+
+**Off by default, and nothing is bundled.** The jar still contains only this plugin's own classes — no shaded HTTP client, no JDA. The single class that talks to DiscordSRV is loaded reflectively, only when the feature is enabled **and** DiscordSRV is installed. Without DiscordSRV, nothing changes.
+
+```yaml
+discord:
+  enabled: true
+  channel: ""     # "" = DiscordSRV main channel | game-channel name | raw channel ID
+```
+
+Then `/modblocker reload` and `/modblocker discord test`.
+
+Four events can be posted, each toggled individually: `channel-detection`, `sign-detection`, `escalation`, `evade`. One detection is always one message — when the escalation ladder takes a detection over, it posts the escalation message and the per-detection one is skipped.
+
+DiscordSRV's JDA owns the request queue, rate limiting and retries, so there is no queue or background thread here and a slow Discord can never delay a player join.
+
+📖 Full guide: [Discord Notifications](https://lostumbrella58.github.io/FakeModBlocker/guide/discord)
 
 ---
 
